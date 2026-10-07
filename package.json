@@ -1,0 +1,35 @@
+{
+  "name": "vibe-gif-yt-dlp-maker",
+  "version": "1.0.0",
+  "description": "Clip Editor using yt-dlp and ffmpeg.wasm",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc && electron-builder",
+    "start": "tsc && electron ."
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3",
+    "@types/node": "^20.12.7",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17"
+  },
+  "build": {
+    "appId": "com.maxfridbe.clipeditor",
+    "mac": { "target": "dmg" },
+    "win": { "target": "nsis" },
+    "linux": { "target": "AppImage" },
+    "files": [
+      "dist/**/*",
+      "src/index.html",
+      "src/style.css",
+      "src/vendor/**/*",
+      "src/fonts/**/*"
+    ]
+  }
+}

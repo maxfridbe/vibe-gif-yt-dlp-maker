@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clip Editor</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    @font-face { font-family: 'ClipSub'; src: url('fonts/DejaVuSans-Bold.ttf'); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>✂ Clip Editor</h1>
+    <form id="url-form">
+      <input id="url" type="url" placeholder="Paste a YouTube or direct video URL…" autocomplete="off" required>
+      <button type="submit" class="primary">Load</button>
+    </form>
+    <label class="btn">Open file…<input id="file" type="file" accept="video/*,.srt,.vtt,.json3" multiple hidden></label>
+    <span id="status" class="status">ffmpeg.wasm idle</span>
+  </header>
+
+  <main>
+    <section class="left">
+      <div id="stage" class="stage empty">
+        <video id="video" playsinline preload="auto"></video>
+        <div id="overlay" class="overlay"></div>
+        <div class="placeholder">Paste a URL, open a file, or drop a video / .srt / .vtt anywhere</div>
+        <div id="progress-wrap" class="progress-wrap" hidden><div id="progress-bar"></div><span id="progress-text"></span></div>
+      </div>
+      <h2 id="title" class="title"></h2>
+
+      <div class="transport">
+        <button id="play" title="Play / pause (Space)">▶</button>
+        <button id="play-sel" title="Loop the selection (L)">⟳ Selection</button>
+        <span class="time" id="cur">0:00.00</span> / <span class="time" id="dur">0:00.00</span>
+        <span class="spacer"></span>
+        <label>In <input id="sel-start" class="t" value="0:00.00"></label>
+        <button id="set-start" title="Set in-point to playhead (I)">[ I</button>
+        <label>Out <input id="sel-end" class="t" value="0:00.00"></label>
+        <button id="set-end" title="Set out-point to playhead (O)">O ]</button>
+        <span class="time dim" id="sel-len"></span>
+        <button id="fit" title="Zoom timeline: whole video / selection (Z)">Zoom</button>
+      </div>
+      <canvas id="timeline" class="timeline" height="96"></canvas>
+      <p class="hint">Drag on the timeline to select · drag the yellow handles · scroll to zoom · ←/→ step 1 frame (Shift: 1s) · I / O set in/out</p>
+
+      <details class="panel" open>
+        <summary>Subtitle style</summary>
+        <div class="grid">
+          <label>Size <input id="st-size" type="range" min="10" max="40" value="20"><output></output></label>
+          <label>Outline <input id="st-outline" type="range" min="0" max="5" step="0.5" value="2"><output></output></label>
+          <label>Bottom margin <input id="st-margin" type="range" min="0" max="80" value="12"><output></output></label>
+          <label>Colour <input id="st-color" type="color" value="#ffffff"></label>
+        </div>
+      </details>
+
+      <details class="panel" open>
+        <summary>Export</summary>
+        <div class="grid">
+          <label><input type="checkbox" id="out-mp4" checked> MP4</label>
+          <label><input type="checkbox" id="out-audio" checked> with audio</label>
+          <label><input type="checkbox" id="out-webp" checked> Animated WebP</label>
+          <label><input type="checkbox" id="out-gif"> GIF</label>
+          <label><input type="checkbox" id="out-srt" checked> .srt</label>
+          <label>Width
+            <select id="out-width"><option>320</option><option selected>480</option><option>640</option><option>720</option><option value="0">source</option></select>
+          </label>
+          <label>FPS (WebP/GIF)
+            <select id="out-fps"><option>10</option><option selected>12</option><option>15</option><option>24</option></select>
+          </label>
+          <label>WebP quality <input id="out-q" type="range" min="30" max="95" value="70"><output></output></label>
+        </div>
+        <div class="row">
+          <input id="out-name" placeholder="file name" class="grow">
+          <button id="render" class="primary" disabled>Render</button>
+          <button id="cancel" hidden>Cancel</button>
+        </div>
+        <div id="results" class="results"></div>
+      </details>
+
+      <details class="panel">
+        <summary>ffmpeg log</summary>
+        <pre id="log"></pre>
+      </details>
+    </section>
+
+    <section class="right">
+      <div class="subs-head">
+        <h2>Subtitles <span id="cue-count" class="dim"></span></h2>
+        <div class="row">
+          <select id="tracks" class="grow"><option value="">— no caption tracks —</option></select>
+          <button id="load-track" disabled>Load</button>
+        </div>
+        <div class="row wrap">
+          <button id="add-cue" title="Add a cue at the playhead (A)">+ Add</button>
+          <button id="group" title="Merge short neighbouring cues into readable chunks">Group lines</button>
+          <button id="tidy" title="Capitalise sentence starts and 'I'">Aa Tidy</button>
+          <button id="shift" title="Shift every cue by N seconds">Shift…</button>
+          <button id="clear-cues" title="Remove all cues">Clear</button>
+          <label class="small"><input type="checkbox" id="only-sel" checked> only selection</label>
+        </div>
+      </div>
+      <div id="cues" class="cues"></div>
+    </section>
+  </main>
+
+  <template id="cue-tpl">
+    <div class="cue">
+      <div class="cue-times">
+        <button class="seek" title="Seek here">▶</button>
+        <input class="t c-start" title="Start (click ⏱ to use playhead)"><button class="now-start" title="Start = playhead">⏱</button>
+        <input class="t c-end" title="End"><button class="now-end" title="End = playhead">⏱</button>
+        <span class="spacer"></span>
+        <button class="merge" title="Merge with next cue">⇣</button>
+        <button class="del" title="Delete cue">✕</button>
+      </div>
+      <textarea class="c-text" rows="2" spellcheck="true"></textarea>
+    </div>
+  </template>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
