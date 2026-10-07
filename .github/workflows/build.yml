@@ -5,6 +5,9 @@ on:
     branches: ["master", "main"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-desktop:
     strategy:
@@ -105,3 +108,52 @@ jobs:
         with:
           name: youtube-gif-maker-android-apk
           path: src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+
+  publish-release:
+    needs: [build-desktop, build-android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: youtube-gif-maker-linux
+          path: artifacts/linux
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: youtube-gif-maker-macos
+          path: artifacts/macos
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: youtube-gif-maker-windows
+          path: artifacts/windows
+
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: youtube-gif-maker-android-apk
+          path: artifacts/android
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "YouTube GIF Maker v1.0.0"
+          body: "Release v1.0.0 — YouTube GIF Maker cross-platform builds for Linux, macOS, Windows, and Android."
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/linux/*
+            artifacts/macos/*
+            artifacts/windows/*
+            artifacts/android/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
