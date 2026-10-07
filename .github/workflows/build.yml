@@ -1,43 +1,60 @@
-name: Build Desktop Apps
-
+name: Release
 on:
   push:
-    branches: [ "master", "main" ]
-  pull_request:
-    branches: [ "master", "main" ]
+    branches:
+      - master
+  workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
+  release:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    
+        platform: [macos-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.platform }}
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Use Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
-        cache: 'npm'
-        
-    - name: Install dependencies
-      run: npm install
+      - uses: actions/checkout@v4
       
-    - name: Build & Compile TypeScript
-      run: npx tsc
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       
-    - name: Build Electron App
-      run: npx electron-builder --${{ matrix.os == 'ubuntu-latest' && 'linux' || matrix.os == 'windows-latest' && 'win' || 'mac' }}
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build and release Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: cargo tauri
+          
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: setup java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          
+      - name: install cargo-tauri
+        run: cargo install tauri-cli --version "^2.0.0"
         
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: ClipEditor-${{ runner.os }}
-        path: |
-          dist/*.exe
-          dist/*.dmg
-          dist/*.AppImage
+      - name: build android
+        run: cargo tauri android build --apk
+        
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-universal-release.apk
+          path: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
