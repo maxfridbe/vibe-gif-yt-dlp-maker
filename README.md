@@ -1,32 +1,53 @@
-# Vibe GIF & yt-dlp Maker (Clip Editor)
+# YouTube GIF Maker
 
-A cross-platform desktop application built with Electron, TypeScript, and `ffmpeg.wasm`.
+A cross-platform desktop, mobile, and web application built with **Rust**, **Tauri v2**, **Axum**, and **ffmpeg.wasm**.
 
 It allows you to:
-1. Paste YouTube URLs (resolves video and subtitles using your system's `yt-dlp`).
-2. Drop local video and subtitle files (`.mp4`, `.srt`, `.vtt`, etc.).
-3. Edit subtitles in a visual WYSIWYG editor.
-4. Export a perfectly looped MP4, WebP, GIF, or SRT file natively—no external cloud required.
+1. **Paste YouTube URLs** or share them directly on Android (resolves streams natively via Rust & Axum backend—no Node.js or external `yt-dlp` installation required).
+2. **Drop local media & subtitles** (`.mp4`, `.webm`, `.srt`, `.vtt`, etc.).
+3. **Visual Subtitle Editor**: Fine-tune timing, text, and styles in a WYSIWYG editor.
+4. **Native GIF & Video Export**: Generate looped GIFs, WebP, MP4, or SRT files client-side using `ffmpeg.wasm`.
 
-## Installation
+---
 
-Download the latest release for your platform from the [Releases page](../../releases) (Windows `.exe`, macOS `.dmg`, Linux `.AppImage`).
+## Supported Platforms
 
-> **Note**: For downloading YouTube videos, you must have `yt-dlp` installed and available in your system's `PATH`.
+- **Linux** (`.AppImage`, `.deb`)
+- **macOS** (`.dmg`, `.app`)
+- **Windows** (`.msi`, `.exe`)
+- **Android** (`.apk` with YouTube share intent support)
+- **Web / Static** (GitHub Pages)
+
+---
 
 ## Development
 
+Requirements: [Rust](https://www.rust-lang.org/) and `tauri-cli` (`cargo install tauri-cli --version "^2.0.0"`). Zero Node.js or npm dependencies required.
+
 ```bash
-# Install dependencies
-npm install
+# Run the app locally in development mode
+cargo tauri dev
 
-# Run the app locally
-npm start
+# Build production binary for current OS
+cargo tauri build
 
-# Build binaries
-npm run build
+# Build Android APK
+cargo tauri android build --apk
 ```
+
+---
+
+## Podman Multi-Target Build Container
+
+You can build Linux, Windows (`x86_64-pc-windows-gnu`), and Android targets in an isolated Podman container without installing cross-compilers locally:
+
+```bash
+# Build container image and execute multi-target compilation
+./run-podman-build.sh
+```
+
+---
 
 ## GitHub Pages
 
-A web-only version of the editor is published to GitHub Pages. Due to browser security and YouTube restrictions, you cannot paste YouTube links in the web-only version. However, you can drag and drop local media and subtitles into the web version to edit and export them perfectly!
+A web version of the editor is hosted on GitHub Pages with COOP/COEP headers enabled via service worker (`coi-serviceworker.js`) to support `ffmpeg.wasm` multithreading.
