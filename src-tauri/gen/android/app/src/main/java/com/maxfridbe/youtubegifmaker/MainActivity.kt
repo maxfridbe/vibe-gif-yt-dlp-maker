@@ -1,4 +1,4 @@
-package com.tauri.dev
+package com.maxfridbe.youtubegifmaker
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

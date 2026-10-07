@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">YouTube GIF Maker</string>
-    <string name="main_activity_title">YouTube GIF Maker</string>
+    <string name="app_name">"youtube-gif-maker"</string>
+    <string name="main_activity_title">"youtube-gif-maker"</string>
 </resources>
