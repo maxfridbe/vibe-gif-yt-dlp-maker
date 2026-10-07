@@ -55,5 +55,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-universal-release.apk
+          name: youtube-gif-maker-v1.0.0.apk
           path: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk

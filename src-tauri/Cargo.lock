@@ -95,25 +95,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "app"
-version = "0.1.0"
-dependencies = [
- "axum",
- "include_dir",
- "log",
- "mime_guess",
- "reqwest 0.13.5",
- "rusty_ytdl",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-log",
- "tokio",
- "tower-http 0.7.1",
-]
-
-[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6485,6 +6466,25 @@ dependencies = [
  "quote",
  "syn 3.0.6",
  "synstructure 0.14.0",
+]
+
+[[package]]
+name = "youtube-gif-maker"
+version = "1.0.0"
+dependencies = [
+ "axum",
+ "include_dir",
+ "log",
+ "mime_guess",
+ "reqwest 0.13.5",
+ "rusty_ytdl",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-log",
+ "tokio",
+ "tower-http 0.7.1",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">"vibe-gif-yt-dlp-maker"</string>
-    <string name="main_activity_title">"vibe-gif-yt-dlp-maker"</string>
+    <string name="app_name">YouTube GIF Maker</string>
+    <string name="main_activity_title">YouTube GIF Maker</string>
 </resources>
