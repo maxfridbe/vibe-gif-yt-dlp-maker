@@ -5,8 +5,10 @@ mod server;
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            // Find a free port
-            let port = get_port::tcp::get_port().unwrap_or(8765);
+            // Find a free port using std::net
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("failed to bind port");
+            let port = listener.local_addr().expect("failed to get local addr").port();
+            drop(listener);
             
             // Start local Axum server
             tauri::async_runtime::spawn(async move {
@@ -16,7 +18,7 @@ pub fn run() {
             // Point main window to the local server
             if let Some(window) = app.get_webview_window("main") {
                 let url = format!("http://127.0.0.1:{}", port);
-                window.navigate(url.parse().unwrap());
+                let _ = window.navigate(url.parse().unwrap());
             }
 
             if cfg!(debug_assertions) {

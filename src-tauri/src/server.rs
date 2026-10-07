@@ -8,7 +8,6 @@ use axum::{
 };
 use reqwest::Client;
 use rusty_ytdl::{Video, VideoOptions, VideoSearchOptions, VideoQuality};
-use std::sync::Arc;
 use include_dir::{include_dir, Dir};
 
 static PROJECT_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../src");
@@ -58,8 +57,6 @@ struct FetchQuery {
 }
 
 async fn fetch_handler(req: Request<Body>) -> impl IntoResponse {
-    // Parse query string for URL
-    let query_string = req.uri().query().unwrap_or("");
     let fetch_query: Result<Query<FetchQuery>, _> = axum::extract::Query::try_from_uri(req.uri());
     
     let target_url = match fetch_query {

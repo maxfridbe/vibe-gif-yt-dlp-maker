@@ -30,4 +30,3 @@ rusty_ytdl = "0.7.4"
 tower-http = { version = "0.7.1", features = ["cors", "set-header"] }
 include_dir = "0.7.4"
 mime_guess = "2.0.5"
-get-port = "4.0.0"
