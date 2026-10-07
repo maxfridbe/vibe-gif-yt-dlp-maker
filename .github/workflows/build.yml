@@ -34,6 +34,14 @@ jobs:
       - name: install tauri-cli
         run: cargo install tauri-cli --version "^2.0.0"
 
+      - name: add cargo bin to PATH (Unix)
+        if: matrix.os-name != 'windows'
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: add cargo bin to PATH (Windows)
+        if: matrix.os-name == 'windows'
+        run: echo "$env:USERPROFILE\.cargo\bin" >> $env:GITHUB_PATH
+
       - name: build app
         run: cargo tauri build
 
@@ -85,7 +93,9 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
           
       - name: install cargo-tauri
-        run: cargo install tauri-cli --version "^2.0.0"
+        run: |
+          cargo install tauri-cli --version "^2.0.0"
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
         
       - name: build android APK
         run: cargo tauri android build --apk
