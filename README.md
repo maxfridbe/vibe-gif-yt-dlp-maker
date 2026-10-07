@@ -50,4 +50,9 @@ You can build Linux, Windows (`x86_64-pc-windows-gnu`), and Android targets in a
 
 ## GitHub Pages
 
-A web version of the editor is hosted on GitHub Pages with COOP/COEP headers enabled via service worker (`coi-serviceworker.js`) to support `ffmpeg.wasm` multithreading.
+Try the web version live at: **[https://maxfridbe.github.io/vibe-gif-yt-dlp-maker/](https://maxfridbe.github.io/vibe-gif-yt-dlp-maker/)**
+
+*Note: Due to browser CORS policies, loading YouTube video URLs directly requires a backend proxy/relay (which is embedded natively in the desktop & mobile apps). However, you can drag and drop any local video files and subtitles into the web version to edit and export GIFs fully client-side!*
+
+Service worker COOP/COEP isolation (`coi-serviceworker.js`) is enabled on GitHub Pages to support `ffmpeg.wasm` multithreading.
+
