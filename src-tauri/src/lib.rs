@@ -1,25 +1,27 @@
-use tauri::Manager;
 mod server;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            // Find a free port using std::net
+            // Bind before creating the window so the server is already accepting
+            // connections when the webview makes its first request.
             let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("failed to bind port");
+            listener.set_nonblocking(true).expect("failed to set non-blocking");
             let port = listener.local_addr().expect("failed to get local addr").port();
-            drop(listener);
-            
-            // Start local Axum server
+
             tauri::async_runtime::spawn(async move {
-                server::start_server(port).await;
+                let listener = tokio::net::TcpListener::from_std(listener).expect("failed to adopt listener");
+                server::start_server(listener).await;
             });
 
-            // Point main window to the local server
-            if let Some(window) = app.get_webview_window("main") {
-                let url = format!("http://127.0.0.1:{}", port);
-                let _ = window.navigate(url.parse().unwrap());
-            }
+            // Open the main window directly on the local server instead of loading the
+            // bundled assets and navigating away afterwards (unreliable on WebView2).
+            let url = format!("http://127.0.0.1:{}", port).parse().unwrap();
+            let builder = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url));
+            #[cfg(desktop)]
+            let builder = builder.title("YouTube GIF Maker").inner_size(800.0, 600.0).resizable(true);
+            builder.build()?;
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(

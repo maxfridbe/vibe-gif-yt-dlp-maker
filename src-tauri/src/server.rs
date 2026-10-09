@@ -7,42 +7,137 @@ use axum::{
     Router,
 };
 use reqwest::Client;
-use rusty_ytdl::{Video, VideoOptions, VideoSearchOptions, VideoQuality};
 use include_dir::{include_dir, Dir};
 
 static PROJECT_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../src");
+
+static HTTP: std::sync::LazyLock<Client> = std::sync::LazyLock::new(|| {
+    let builder = Client::builder();
+    #[cfg(target_os = "android")]
+    let builder = builder.tls_certs_only(
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .filter_map(|c| reqwest::Certificate::from_der(c).ok()),
+    );
+    builder.build().expect("failed to build HTTP client")
+});
 
 #[derive(serde::Deserialize)]
 struct ResolveQuery {
     url: String,
 }
 
+// InnerTube "ANDROID" client: its player response carries plain stream URLs (no signature
+// deciphering), and the muxed formats download in full without a PO token.
+const YT_CLIENT_NAME: &str = "ANDROID";
+const YT_CLIENT_ID: &str = "3";
+const YT_CLIENT_VERSION: &str = "20.10.38";
+const YT_USER_AGENT: &str = "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip";
+
+fn youtube_id(raw: &str) -> Option<String> {
+    let url = reqwest::Url::parse(raw).ok()?;
+    let host = url.host_str()?.trim_start_matches("www.").trim_start_matches("m.");
+    let id = if host == "youtu.be" {
+        url.path_segments()?.next()?.to_string()
+    } else if host.ends_with("youtube.com") {
+        match url.path_segments()?.collect::<Vec<_>>().as_slice() {
+            ["watch"] => url.query_pairs().find(|(k, _)| k == "v")?.1.into_owned(),
+            ["shorts" | "embed" | "live" | "v", id, ..] => id.to_string(),
+            _ => return None,
+        }
+    } else {
+        return None;
+    };
+    (id.len() == 11 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')).then_some(id)
+}
+
+async fn youtube_player(id: &str) -> Result<serde_json::Value, String> {
+    let body = serde_json::json!({
+        "context": { "client": {
+            "clientName": YT_CLIENT_NAME,
+            "clientVersion": YT_CLIENT_VERSION,
+            "androidSdkVersion": 34,
+            "osName": "Android",
+            "osVersion": "14",
+            "hl": "en",
+        }},
+        "videoId": id,
+        "contentCheckOk": true,
+        "racyCheckOk": true,
+    });
+    let res = HTTP
+        .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::USER_AGENT, YT_USER_AGENT)
+        .header("X-YouTube-Client-Name", YT_CLIENT_ID)
+        .header("X-YouTube-Client-Version", YT_CLIENT_VERSION)
+        .body(body.to_string())
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let bytes = res.bytes().await.map_err(|e| e.to_string())?;
+    serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+}
+
+fn json_error(status: StatusCode, msg: impl std::fmt::Display) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(serde_json::json!({ "error": msg.to_string() }).to_string()))
+        .unwrap()
+}
+
 async fn resolve_handler(Query(query): Query<ResolveQuery>) -> impl IntoResponse {
-    let video_options = VideoOptions {
-        quality: VideoQuality::Highest,
-        filter: VideoSearchOptions::VideoAudio,
-        ..Default::default()
+    let Some(id) = youtube_id(&query.url) else {
+        return json_error(StatusCode::BAD_REQUEST, "not a YouTube video URL");
     };
-    let video = match Video::new_with_options(&query.url, video_options) {
-        Ok(v) => v,
-        Err(e) => return Response::builder().status(400).body(Body::from(e.to_string())).unwrap(),
-    };
-    let info = match video.get_info().await {
-        Ok(i) => i,
-        Err(e) => return Response::builder().status(500).body(Body::from(e.to_string())).unwrap(),
+    let player = match youtube_player(&id).await {
+        Ok(p) => p,
+        Err(e) => return json_error(StatusCode::BAD_GATEWAY, format!("YouTube request failed: {e}")),
     };
 
-    let best_format = info.formats.into_iter().find(|f| f.has_video && f.has_audio);
-    
-    // We mock the yt-dlp output format expected by the frontend:
+    let playability = &player["playabilityStatus"];
+    if playability["status"].as_str() != Some("OK") {
+        let reason = playability["reason"].as_str().unwrap_or("video is unavailable");
+        return json_error(StatusCode::BAD_GATEWAY, format!("YouTube: {reason}"));
+    }
+
+    // Highest-resolution muxed (video + audio) format with a direct URL.
+    let best = player["streamingData"]["formats"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["url"].is_string() && f["mimeType"].as_str().is_some_and(|m| m.starts_with("video/")))
+        .max_by_key(|f| f["height"].as_u64().unwrap_or(0));
+    let Some(best) = best else {
+        return json_error(StatusCode::BAD_GATEWAY, "YouTube returned no downloadable video+audio stream");
+    };
+    let ext = if best["mimeType"].as_str().is_some_and(|m| m.starts_with("video/webm")) { "webm" } else { "mp4" };
+
+    let captions: Vec<_> = player["captions"]["playerCaptionsTracklistRenderer"]["captionTracks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| {
+            let url = t["baseUrl"].as_str()?;
+            let name = t["name"]["runs"][0]["text"].as_str().or(t["name"]["simpleText"].as_str()).unwrap_or("Captions");
+            Some(serde_json::json!({
+                "name": name,
+                "lang": t["languageCode"].as_str().unwrap_or(""),
+                "url": format!("{url}&fmt=json3"),
+                "ext": "json3",
+            }))
+        })
+        .collect();
+
     let result = serde_json::json!({
-        "title": info.video_details.title,
+        "title": player["videoDetails"]["title"],
         "video": {
-            "url": best_format.as_ref().map(|f| &f.url).unwrap_or(&"".to_string()),
-            "size": 0, // frontend doesn't strictly need accurate size if it's 0 it skips progress limit
-            "ext": "mp4" // simplify
+            "url": best["url"],
+            "size": best["contentLength"].as_str().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0),
+            "ext": ext,
         },
-        "captions": []
+        "captions": captions,
     });
 
     Response::builder()
@@ -64,8 +159,7 @@ async fn fetch_handler(req: Request<Body>) -> impl IntoResponse {
         Err(_) => return Response::builder().status(400).body(Body::from("missing url")).unwrap(),
     };
 
-    let client = Client::new();
-    let mut req_builder = client.get(&target_url);
+    let mut req_builder = HTTP.get(&target_url);
 
     // Forward Range header if present
     if let Some(range) = req.headers().get(header::RANGE) {
@@ -107,7 +201,7 @@ async fn static_handler(req: Request<Body>) -> impl IntoResponse {
     }
 }
 
-pub async fn start_server(port: u16) {
+pub async fn start_server(listener: tokio::net::TcpListener) {
     let app = Router::new()
         .route("/api/resolve", get(resolve_handler))
         .route("/api/fetch", get(fetch_handler))
@@ -121,6 +215,5 @@ pub async fn start_server(port: u16) {
             HeaderValue::from_static("require-corp"),
         ));
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
