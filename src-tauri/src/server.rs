@@ -1,11 +1,12 @@
 use axum::{
-    body::Body,
-    extract::Query,
+    body::{Body, Bytes},
+    extract::{DefaultBodyLimit, Query},
     http::{header, HeaderValue, Request, Response, StatusCode},
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Router,
 };
+use std::path::{Path, PathBuf};
 use reqwest::Client;
 use include_dir::{include_dir, Dir};
 
@@ -201,10 +202,92 @@ async fn static_handler(req: Request<Body>) -> impl IntoResponse {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct SaveQuery {
+    name: String,
+}
+
+/// Candidate folders for saved clips, most user-visible first.
+fn save_dirs() -> Vec<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        vec![
+            // Shows up in the Files app / Downloads; Android 11+ allows apps to
+            // create their own files here without a storage permission.
+            PathBuf::from("/storage/emulated/0/Download/YouTubeGifMaker"),
+            // Always-writable app-specific external storage as a fallback.
+            PathBuf::from("/storage/emulated/0/Android/data/com.maxfridbe.youtubegifmaker/files"),
+        ]
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+        let mut dirs = Vec::new();
+        if let Some(home) = home {
+            dirs.push(Path::new(&home).join("Downloads"));
+            dirs.push(PathBuf::from(home));
+        }
+        dirs.push(std::env::temp_dir());
+        dirs
+    }
+}
+
+/// Strip path components and characters that are invalid on common filesystems.
+fn sanitize_filename(name: &str) -> String {
+    let base = Path::new(name).file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let clean: String = base
+        .chars()
+        .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+        .collect();
+    let clean = clean.trim().trim_start_matches('.').to_string();
+    if clean.is_empty() { "clip".into() } else { clean }
+}
+
+/// `dir/name`, or `dir/stem (n).ext` if that file already exists.
+fn unique_path(dir: &Path, name: &str) -> PathBuf {
+    let candidate = dir.join(name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let p = Path::new(name);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("clip");
+    let ext = p.extension().and_then(|s| s.to_str()).map(|e| format!(".{e}")).unwrap_or_default();
+    (1..)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|p| !p.exists())
+        .unwrap()
+}
+
+/// Writes an uploaded clip to disk. Needed because WebViews (notably Android's)
+/// ignore `<a download>` on blob: URLs, so the browser-style download never happens.
+async fn save_handler(Query(q): Query<SaveQuery>, body: Bytes) -> impl IntoResponse {
+    let name = sanitize_filename(&q.name);
+    let mut last_err = String::from("no writable folder");
+    for dir in save_dirs() {
+        if let Err(e) = tokio::fs::create_dir_all(&dir).await {
+            last_err = format!("{}: {e}", dir.display());
+            continue;
+        }
+        let path = unique_path(&dir, &name);
+        match tokio::fs::write(&path, &body).await {
+            Ok(()) => {
+                let result = serde_json::json!({ "path": path.to_string_lossy() });
+                return Response::builder()
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(result.to_string()))
+                    .unwrap();
+            }
+            Err(e) => last_err = format!("{}: {e}", path.display()),
+        }
+    }
+    json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Could not save: {last_err}"))
+}
+
 pub async fn start_server(listener: tokio::net::TcpListener) {
     let app = Router::new()
         .route("/api/resolve", get(resolve_handler))
         .route("/api/fetch", get(fetch_handler))
+        .route("/api/save", post(save_handler).layer(DefaultBodyLimit::max(2 * 1024 * 1024 * 1024)))
         .fallback(static_handler)
         .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
             header::HeaderName::from_static("cross-origin-opener-policy"),

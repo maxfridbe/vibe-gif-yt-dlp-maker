@@ -8,6 +8,19 @@ It allows you to:
 3. **Visual Subtitle Editor**: Fine-tune timing, text, and styles in a WYSIWYG editor.
 4. **Native GIF & Video Export**: Generate looped GIFs, WebP, MP4, or SRT files client-side using `ffmpeg.wasm`.
 
+![Desktop editor: video preview with subtitle overlay, timeline selection and cue list](docs/screenshot-desktop.png)
+
+<table>
+  <tr>
+    <td width="35%"><img src="docs/screenshot-mobile.png" alt="Phone layout"></td>
+    <td><img src="docs/screenshot-export.png" alt="Export panel with a rendered WebP and Save button"><br><br>
+      <b>Export</b> — pick formats, width, FPS and quality, then render. In the desktop and Android apps the
+      <b>💾 Save</b> button writes the clip to your <code>Downloads</code> folder
+      (<code>Download/YouTubeGifMaker</code> on Android); on the web version it downloads through the browser.
+    </td>
+  </tr>
+</table>
+
 ---
 
 ## Supported Platforms

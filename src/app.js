@@ -4,6 +4,8 @@
 import { FFmpeg } from './vendor/ffmpeg/index.js';
 import * as S from './subs.js';
 const $ = (id) => document.getElementById(id);
+/** True inside the desktop/Android app, where the page is served by the embedded Rust server. */
+const NATIVE = location.hostname === '127.0.0.1';
 const video = $('video');
 const tl = $('timeline');
 const ctx = tl.getContext('2d');
@@ -693,16 +695,43 @@ function addResult(filename, blob, text) {
     }
     const meta = document.createElement('div');
     meta.className = 'meta';
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.textContent = `⬇ ${filename}`;
     const size = document.createElement('span');
     size.className = 'dim';
     size.textContent = fmtBytes(blob.size);
-    meta.append(a, size);
+    if (NATIVE) {
+        // WebViews (Android especially) ignore <a download> on blob: URLs, so hand
+        // the bytes to the embedded server which writes them to Downloads.
+        const btn = document.createElement('button');
+        btn.textContent = `💾 Save ${filename}`;
+        btn.onclick = () => saveClip(filename, blob, btn);
+        meta.append(btn, size);
+    }
+    else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.textContent = `⬇ ${filename}`;
+        meta.append(a, size);
+    }
     card.appendChild(meta);
     $('results').prepend(card);
+}
+async function saveClip(filename, blob, btn) {
+    btn.disabled = true;
+    try {
+        const res = await fetch(`/api/save?name=${encodeURIComponent(filename)}`, { method: 'POST', body: blob });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok)
+            throw new Error(out.error || `HTTP ${res.status}`);
+        btn.textContent = '✓ Saved';
+        btn.title = out.path;
+        setStatus(`Saved to ${out.path}`);
+    }
+    catch (e) {
+        btn.disabled = false;
+        setStatus(`Save failed: ${e.message}`);
+        alert(`Save failed: ${e.message}`);
+    }
 }
 /* ───────────────────────── Files, drag & drop, paste ───────────────────────── */
 async function openFiles(files) {
