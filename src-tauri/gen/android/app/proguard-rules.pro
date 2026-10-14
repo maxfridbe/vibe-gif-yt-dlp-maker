@@ -10,6 +10,9 @@
 # class:
 -keep class com.maxfridbe.youtubegifmaker.MainActivity { *; }
 -keep class com.maxfridbe.youtubegifmaker.MainActivity$** { *; }
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }

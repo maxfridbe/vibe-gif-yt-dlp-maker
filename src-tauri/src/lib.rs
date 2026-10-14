@@ -33,6 +33,42 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while building tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, _event| {
+            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                for u in urls {
+                    let s = u.to_string();
+                    log::info!("RunEvent::Opened received url: {}", s);
+                    server::set_shared_url(s);
+                }
+            }
+        });
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_maxfridbe_youtubegifmaker_MainActivity_nativeSetSharedUrl(
+    mut env: jni::JNIEnv,
+    _: jni::objects::JClass,
+    url: jni::objects::JString,
+) {
+    if let Ok(url_str) = env.get_string(&url) {
+        let s = url_str.to_string_lossy().to_string();
+        server::set_shared_url(s);
+    }
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_maxfridbe_youtubegifmaker_Rust_setSharedUrl(
+    mut env: jni::JNIEnv,
+    _: jni::objects::JClass,
+    url: jni::objects::JString,
+) {
+    if let Ok(url_str) = env.get_string(&url) {
+        let s = url_str.to_string_lossy().to_string();
+        server::set_shared_url(s);
+    }
 }

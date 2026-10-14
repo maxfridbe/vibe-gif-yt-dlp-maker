@@ -21,14 +21,30 @@ class MainActivity : TauriActivity() {
 
   companion object {
     private const val TAG = "YouTubeGifMaker"
-    private val YOUTUBE_URL_REGEX = Regex("""https?://(?:[a-zA-Z0-9-]+\.)*(?:youtube\.com|youtu\.be)/[^\s"'<>]+""")
+
+    init {
+      try {
+        System.loadLibrary("app_lib")
+      } catch (e: Throwable) {
+        Log.w(TAG, "Could not pre-load app_lib in MainActivity: $e")
+      }
+    }
+
+    @JvmStatic
+    external fun nativeSetSharedUrl(url: String)
+
+    private val YOUTUBE_URL_REGEX = Regex("""(?:https?://)?(?:[a-zA-Z0-9-]+\.)*(?:youtube\.com|youtu\.be)/[^\s"'<>]+""")
     private val GENERIC_URL_REGEX = Regex("""https?://[^\s"'<>]+""")
 
     fun extractAnyUrl(text: String?): String? {
       if (text.isNullOrBlank()) return null
       val ytMatch = YOUTUBE_URL_REGEX.find(text)?.value
       if (ytMatch != null) {
-        return cleanUrl(ytMatch)
+        var clean = cleanUrl(ytMatch)
+        if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+          clean = "https://$clean"
+        }
+        return clean
       }
       val genMatch = GENERIC_URL_REGEX.find(text)?.value
       if (genMatch != null) {
@@ -171,7 +187,7 @@ class MainActivity : TauriActivity() {
   }
 
   private fun scheduleDeliveryRetries() {
-    val delays = longArrayOf(100L, 400L, 800L, 1500L, 2500L, 4000L)
+    val delays = longArrayOf(100L, 300L, 600L, 1000L, 1800L, 2800L, 4200L, 6000L)
     for (delay in delays) {
       mainHandler.postDelayed({
         if (pendingSharedUrl != null) {
@@ -181,14 +197,25 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  private fun onUrlReceived(url: String, source: String) {
+    Log.i(TAG, "[$source] detected shared URL: $url")
+    pendingSharedUrl = url
+    try {
+      nativeSetSharedUrl(url)
+      Log.i(TAG, "[$source] forwarded URL to native backend: $url")
+    } catch (e: Throwable) {
+      Log.w(TAG, "nativeSetSharedUrl call failed: $e")
+    }
+    deliverPendingUrl()
+    scheduleDeliveryRetries()
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
 
     extractUrlFromIntent(intent)?.let {
-      Log.i(TAG, "onCreate detected shared URL: $it")
-      pendingSharedUrl = it
-      scheduleDeliveryRetries()
+      onUrlReceived(it, "onCreate")
     }
 
     // Edge-to-edge draws the WebView under the status/navigation bars, so the page
@@ -220,6 +247,11 @@ class MainActivity : TauriActivity() {
   override fun onResume() {
     super.onResume()
     getOrCreateWebView()
+    extractUrlFromIntent(intent)?.let {
+      if (it != pendingSharedUrl) {
+        onUrlReceived(it, "onResume")
+      }
+    }
     if (pendingSharedUrl != null) {
       deliverPendingUrl()
     }
@@ -235,10 +267,8 @@ class MainActivity : TauriActivity() {
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
-    val url = extractUrlFromIntent(intent) ?: return
-    Log.i(TAG, "onNewIntent detected shared URL: $url")
-    pendingSharedUrl = url
-    deliverPendingUrl()
-    scheduleDeliveryRetries()
+    extractUrlFromIntent(intent)?.let {
+      onUrlReceived(it, "onNewIntent")
+    }
   }
 }

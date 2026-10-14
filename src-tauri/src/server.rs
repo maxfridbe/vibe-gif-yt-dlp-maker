@@ -284,11 +284,48 @@ async fn save_handler(Query(q): Query<SaveQuery>, body: Bytes) -> impl IntoRespo
     json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Could not save: {last_err}"))
 }
 
+static SHARED_URL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn set_shared_url(url: String) {
+    if let Ok(mut lock) = SHARED_URL.lock() {
+        log::info!("Backend received shared URL: {}", url);
+        *lock = Some(url);
+    }
+}
+
+pub fn get_shared_url() -> Option<String> {
+    SHARED_URL.lock().ok().and_then(|lock| lock.clone())
+}
+
+pub fn clear_shared_url() {
+    if let Ok(mut lock) = SHARED_URL.lock() {
+        *lock = None;
+    }
+}
+
+async fn shared_url_handler() -> impl IntoResponse {
+    let url = get_shared_url();
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(serde_json::json!({ "url": url }).to_string()))
+        .unwrap()
+}
+
+async fn clear_shared_url_handler() -> impl IntoResponse {
+    clear_shared_url();
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(serde_json::json!({ "status": "ok" }).to_string()))
+        .unwrap()
+}
+
 pub async fn start_server(listener: tokio::net::TcpListener, assets: tauri::AssetResolver<tauri::Wry>) {
     let app = Router::new()
         .route("/api/resolve", get(resolve_handler))
         .route("/api/fetch", get(fetch_handler))
         .route("/api/save", post(save_handler).layer(DefaultBodyLimit::max(2 * 1024 * 1024 * 1024)))
+        .route("/api/shared-url", get(shared_url_handler))
+        .route("/api/shared-url/clear", post(clear_shared_url_handler))
         .fallback(static_handler)
         .with_state(std::sync::Arc::new(assets))
         .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(

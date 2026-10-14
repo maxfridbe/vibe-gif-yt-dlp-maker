@@ -29,6 +29,7 @@ tower-http = { version = "0.7.1", features = ["cors", "set-header"] }
 # rustls-platform-verifier needs JNI initialisation on Android; use bundled roots there instead.
 [target.'cfg(target_os = "android")'.dependencies]
 webpki-root-certs = "1"
+jni = "0.21"
 
 # Smaller binaries (matters most for the Android APK, which ships one library per ABI).
 [profile.release]

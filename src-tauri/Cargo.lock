@@ -4944,6 +4944,7 @@ name = "youtube-gif-maker"
 version = "26.1014.1"
 dependencies = [
  "axum",
+ "jni 0.21.1",
  "log",
  "reqwest",
  "serde",

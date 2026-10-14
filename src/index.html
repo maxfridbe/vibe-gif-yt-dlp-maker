@@ -4,10 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Clip Editor</title>
+  <script>
+    window.coi = {
+      shouldRegister: () => !window.crossOriginIsolated,
+      shouldDeregister: () => window.crossOriginIsolated,
+    };
+  </script>
   <script src="coi-serviceworker.js"></script>
   <script>
-    window._pendingSharedUrls = [];
-    window.onSharedUrl = function(u) { if (u) window._pendingSharedUrls.push(u); };
+    window._pendingSharedUrls = window._pendingSharedUrls || [];
+    window.onSharedUrl = function(u) {
+      if (u) {
+        window._pendingSharedUrls = window._pendingSharedUrls || [];
+        window._pendingSharedUrls.push(u);
+      }
+    };
   </script>
   <link rel="stylesheet" href="style.css">
   <style>

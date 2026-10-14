@@ -1023,7 +1023,7 @@ function handleIncomingSharedUrl(rawUrl: string) {
   if (typeof rawUrl !== 'string') return;
   const url = rawUrl.trim();
   if (!url) return;
-  if (url === lastHandledSharedUrl) {
+  if (url === lastHandledSharedUrl && (state.busy || state.srcBytes)) {
     console.log('[SharedUrl] Already handled recently:', url);
     return;
   }
@@ -1040,6 +1040,9 @@ function handleIncomingSharedUrl(rawUrl: string) {
   }
   loadUrl(url);
 
+  if (NATIVE) {
+    fetch('/api/shared-url/clear', { method: 'POST' }).catch(() => {});
+  }
   try {
     const bridge = (window as any)._AndroidShare;
     if (bridge && typeof bridge.clearPendingUrl === 'function') {
@@ -1058,7 +1061,7 @@ for (const earlyUrl of pendingEarlyUrls) {
   handleIncomingSharedUrl(earlyUrl);
 }
 
-// Poll native Android bridge on startup (in case bridge is injected slightly after page eval)
+// Channel 2: Poll native Android bridge
 let bridgeCheckCount = 0;
 const bridgeCheckInterval = setInterval(() => {
   bridgeCheckCount++;
@@ -1080,6 +1083,54 @@ const bridgeCheckInterval = setInterval(() => {
     clearInterval(bridgeCheckInterval);
   }
 }, 100);
+
+// Channel 3: Poll Rust HTTP API (/api/shared-url)
+async function pollBackendSharedUrl() {
+  if (!NATIVE) return;
+  try {
+    const res = await fetch('/api/shared-url');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && typeof data.url === 'string' && data.url.trim()) {
+      const url = data.url.trim();
+      console.log('[Backend API] Discovered shared URL:', url);
+      handleIncomingSharedUrl(url);
+    }
+  } catch (e) {
+    // Offline or server initializing
+  }
+}
+
+// Immediate check on startup
+pollBackendSharedUrl();
+
+// Fast interval during initial load (every 300ms for first 15 seconds)
+let apiPollCount = 0;
+const fastApiPoll = setInterval(() => {
+  apiPollCount++;
+  pollBackendSharedUrl();
+  if (apiPollCount > 50) {
+    clearInterval(fastApiPoll);
+  }
+}, 300);
+
+// Steady background poll (every 1.5s) to catch any shared intent while app is running
+setInterval(() => {
+  pollBackendSharedUrl();
+}, 1500);
+
+// Lifecycle wakeup listeners
+window.addEventListener('focus', () => {
+  pollBackendSharedUrl();
+});
+window.addEventListener('pageshow', () => {
+  pollBackendSharedUrl();
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    pollBackendSharedUrl();
+  }
+});
 
 /* ───────────────────────── TSX Component Views ───────────────────────── */
 function renderApp(): VNode {
