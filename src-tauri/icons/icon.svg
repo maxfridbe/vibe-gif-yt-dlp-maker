@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E222B"/>
+      <stop offset="100%" stop-color="#0E1013"/>
+    </linearGradient>
+    <linearGradient id="playGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF4E50"/>
+      <stop offset="100%" stop-color="#F9D423"/>
+    </linearGradient>
+    <linearGradient id="loopGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4EA1FF"/>
+      <stop offset="100%" stop-color="#00E5FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="108" height="108" rx="24" fill="url(#bg)"/>
+
+  <!-- Subtle Bezel -->
+  <circle cx="54" cy="54" r="39" fill="none" stroke="#2A303C" stroke-width="2"/>
+
+  <!-- Outer Looping Arrows (GIF Loop) -->
+  <path d="M 54 23 A 31 31 0 0 1 84.5 48" fill="none" stroke="url(#loopGrad)" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M 80 39 L 88 51 L 75 52 Z" fill="#00E5FF"/>
+
+  <path d="M 54 85 A 31 31 0 0 1 23.5 60" fill="none" stroke="url(#loopGrad)" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M 28 69 L 20 57 L 33 56 Z" fill="#4EA1FF"/>
+
+  <!-- Center Play Button with rounded corners -->
+  <path d="M 46 37 C 46 35.5 47.7 34.5 49 35.3 L 69 49.3 C 70.3 50.1 70.3 51.9 69 52.7 L 49 66.7 C 47.7 67.5 46 66.5 46 65 Z" fill="url(#playGrad)"/>
+</svg>
