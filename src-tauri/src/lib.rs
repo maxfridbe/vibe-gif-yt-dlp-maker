@@ -10,9 +10,10 @@ pub fn run() {
             listener.set_nonblocking(true).expect("failed to set non-blocking");
             let port = listener.local_addr().expect("failed to get local addr").port();
 
+            let assets = app.asset_resolver();
             tauri::async_runtime::spawn(async move {
                 let listener = tokio::net::TcpListener::from_std(listener).expect("failed to adopt listener");
-                server::start_server(listener).await;
+                server::start_server(listener, assets).await;
             });
 
             // Open the main window directly on the local server instead of loading the

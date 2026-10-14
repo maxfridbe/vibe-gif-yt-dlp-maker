@@ -1,6 +1,6 @@
 use axum::{
     body::{Body, Bytes},
-    extract::{DefaultBodyLimit, Query},
+    extract::{DefaultBodyLimit, Query, State},
     http::{header, HeaderValue, Request, Response, StatusCode},
     response::IntoResponse,
     routing::{get, post},
@@ -8,9 +8,6 @@ use axum::{
 };
 use std::path::{Path, PathBuf};
 use reqwest::Client;
-use include_dir::{include_dir, Dir};
-
-static PROJECT_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../src");
 
 static HTTP: std::sync::LazyLock<Client> = std::sync::LazyLock::new(|| {
     let builder = Client::builder();
@@ -182,20 +179,24 @@ async fn fetch_handler(req: Request<Body>) -> impl IntoResponse {
     }
 }
 
-async fn static_handler(req: Request<Body>) -> impl IntoResponse {
+type Assets = std::sync::Arc<tauri::AssetResolver<tauri::Wry>>;
+
+/// Serves the frontend from the assets Tauri already embeds (brotli-compressed) for
+/// `frontendDist`. Embedding `../src` a second time with `include_dir!` stored the
+/// 31 MB ffmpeg wasm uncompressed in every native library.
+async fn static_handler(State(assets): State<Assets>, req: Request<Body>) -> impl IntoResponse {
     let mut path = req.uri().path().trim_start_matches('/');
     if path.is_empty() {
         path = "index.html";
     }
-    match PROJECT_DIR.get_file(path) {
-        Some(file) => {
-            let mime_type = mime_guess::from_path(path).first_or_octet_stream();
-            Response::builder()
-                .header(header::CONTENT_TYPE, mime_type.as_ref())
-                .body(Body::from(file.contents()))
-                .unwrap()
-        }
-        None => Response::builder()
+    // Tauri falls back to index.html for unknown paths; only honour that for HTML requests.
+    let wants_html = path.ends_with(".html");
+    match assets.get(path.to_string()) {
+        Some(asset) if wants_html || asset.mime_type != "text/html" => Response::builder()
+            .header(header::CONTENT_TYPE, asset.mime_type)
+            .body(Body::from(asset.bytes))
+            .unwrap(),
+        _ => Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::empty())
             .unwrap(),
@@ -283,12 +284,13 @@ async fn save_handler(Query(q): Query<SaveQuery>, body: Bytes) -> impl IntoRespo
     json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Could not save: {last_err}"))
 }
 
-pub async fn start_server(listener: tokio::net::TcpListener) {
+pub async fn start_server(listener: tokio::net::TcpListener, assets: tauri::AssetResolver<tauri::Wry>) {
     let app = Router::new()
         .route("/api/resolve", get(resolve_handler))
         .route("/api/fetch", get(fetch_handler))
         .route("/api/save", post(save_handler).layer(DefaultBodyLimit::max(2 * 1024 * 1024 * 1024)))
         .fallback(static_handler)
+        .with_state(std::sync::Arc::new(assets))
         .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
             header::HeaderName::from_static("cross-origin-opener-policy"),
             HeaderValue::from_static("same-origin"),

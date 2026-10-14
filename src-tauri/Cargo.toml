@@ -25,9 +25,15 @@ axum = "0.8.9"
 tokio = { version = "1.53.2", features = ["full", "macros", "rt"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream"] }
 tower-http = { version = "0.7.1", features = ["cors", "set-header"] }
-include_dir = "0.7.4"
-mime_guess = "2.0.5"
 
 # rustls-platform-verifier needs JNI initialisation on Android; use bundled roots there instead.
 [target.'cfg(target_os = "android")'.dependencies]
 webpki-root-certs = "1"
+
+# Smaller binaries (matters most for the Android APK, which ships one library per ABI).
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
