@@ -36,9 +36,12 @@ It allows you to:
 
 ## Development
 
-Requirements: [Rust](https://www.rust-lang.org/) and `tauri-cli` (`cargo install tauri-cli --version "^2.0.0"`). Zero Node.js or npm dependencies required.
+Requirements: [Rust](https://www.rust-lang.org/) and `tauri-cli` (`cargo install tauri-cli --version "^2.0.0"`). Zero Node.js or npm dependencies required. Frontend is written in TypeScript / TSX with Snabbdom and compiled with `tsc`.
 
 ```bash
+# Compile TypeScript frontend (optional if editing .tsx/.ts)
+tsc
+
 # Run the app locally in development mode
 cargo tauri dev
 

@@ -161,9 +161,9 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: "YouTube GIF Maker v1.0.0"
-          body: "Release v1.0.0 — YouTube GIF Maker cross-platform builds for Linux, macOS, Windows, and Android."
+          tag_name: v26.1014.1
+          name: "YouTube GIF Maker v26.1014.1"
+          body: "Release v26.1014.1 — YouTube GIF Maker cross-platform builds for Linux, macOS, Windows, and Android."
           draft: false
           prerelease: false
           files: |

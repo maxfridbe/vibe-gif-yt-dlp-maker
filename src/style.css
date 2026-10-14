@@ -9,6 +9,7 @@ body.dragging::after {
   content: 'Drop video or subtitles'; position: fixed; inset: 12px; border: 3px dashed var(--accent);
   border-radius: 12px; display: grid; place-items: center; font-size: 28px; background: #121417cc; z-index: 10;
 }
+#app { display: contents; }
 header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
 header h1 { font-size: 18px; margin: 0; white-space: nowrap; }
 #url-form { display: flex; gap: 6px; flex: 1; }

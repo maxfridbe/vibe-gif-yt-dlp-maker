@@ -26,8 +26,8 @@ android {
         applicationId = "com.maxfridbe.youtubegifmaker"
         minSdk = 24
         targetSdk = 37
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "26101401").toInt()
+        versionName = tauriProperties.getProperty("tauri.android.versionName", "26.1014.1")
     }
     signingConfigs {
         if (releaseKeystore != null) {

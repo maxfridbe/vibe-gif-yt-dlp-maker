@@ -22,12 +22,17 @@ export function fmtShort(t) {
 /** Accepts "12.5", "1:02.3", "01:02:03,450" etc. Returns NaN if invalid. */
 export function parseTime(str) {
     const parts = String(str).trim().replace(',', '.').split(':');
-    if (!parts.length || parts.length > 3 || parts.some((p) => p === '' || isNaN(p)))
+    if (!parts.length || parts.length > 3 || parts.some((p) => p === '' || isNaN(Number(p))))
         return NaN;
     return parts.reduce((acc, p) => acc * 60 + parseFloat(p), 0);
 }
-const stripTags = (s) => s.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+const stripTags = (s) => s.replace(/<[^>]*>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"');
 function parseBlocks(text) {
     // Shared parser for SRT and WebVTT cue blocks.
     const cues = [];
@@ -112,8 +117,9 @@ export function autoGroup(cues, maxChars = 84, maxGap = 0.35) {
             last.text += ' ' + text;
             last.end = c.end;
         }
-        else
+        else {
             out.push({ start: c.start, end: c.end, text });
+        }
     }
     return out;
 }
@@ -122,7 +128,7 @@ export function tidyCase(cues) {
     let sentenceStart = true;
     return cues.map((c) => {
         let text = c.text.replace(/\bi\b/g, 'I').replace(/\bi'(m|ll|d|ve)\b/gi, (m) => 'I' + m.slice(1));
-        text = text.replace(/(^|[.!?]\s+)([a-z])/g, (m, p, ch) => p + ch.toUpperCase());
+        text = text.replace(/(^|[.!?]\s+)([a-z])/g, (_m, p, ch) => p + ch.toUpperCase());
         if (sentenceStart)
             text = text.replace(/^([a-z])/, (m) => m.toUpperCase());
         sentenceStart = /[.!?]["')\]]?$/.test(text.trim());
