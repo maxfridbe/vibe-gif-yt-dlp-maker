@@ -8,10 +8,11 @@
 # If your project uses WebView with JS, uncomment the following
 # and specify the fully qualified class name to the JavaScript interface
 # class:
+-keep class com.maxfridbe.youtubegifmaker.MainActivity { *; }
+-keep class com.maxfridbe.youtubegifmaker.MainActivity$** { *; }
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
--keep class com.maxfridbe.youtubegifmaker.MainActivity$** { *; }
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.

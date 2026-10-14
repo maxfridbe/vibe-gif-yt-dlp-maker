@@ -1017,34 +1017,69 @@ window.addEventListener('keydown', (e) => {
 });
 
 /* ───────────────────────── Shared YouTube URL Reception (Android / Web) ───────────────────────── */
+let lastHandledSharedUrl: string | null = null;
+
 function handleIncomingSharedUrl(rawUrl: string) {
   if (typeof rawUrl !== 'string') return;
   const url = rawUrl.trim();
   if (!url) return;
+  if (url === lastHandledSharedUrl) {
+    console.log('[SharedUrl] Already handled recently:', url);
+    return;
+  }
+  lastHandledSharedUrl = url;
+  console.log('[SharedUrl] Handling incoming URL:', url);
+
   state.urlInput = url;
+  update(); // Instantly reflect the URL in the input box!
+
   if (state.busy) {
     state.abort?.abort();
     if (progressCtx || ffLoading) killFF();
     setBusy(false);
   }
   loadUrl(url);
+
+  try {
+    const bridge = (window as any)._AndroidShare;
+    if (bridge && typeof bridge.clearPendingUrl === 'function') {
+      bridge.clearPendingUrl();
+    }
+  } catch (e) {
+    // Ignore
+  }
 }
 
 // Drain any early URLs buffered in window._pendingSharedUrls
 const pendingEarlyUrls = Array.isArray((window as any)._pendingSharedUrls) ? (window as any)._pendingSharedUrls.slice() : [];
 (window as any)._pendingSharedUrls = [];
 (window as any).onSharedUrl = handleIncomingSharedUrl;
-for (const earlyUrl of pendingEarlyUrls) handleIncomingSharedUrl(earlyUrl);
-
-try {
-  const bridge = (window as any)._AndroidShare;
-  if (bridge && typeof bridge.getPendingUrl === 'function') {
-    const nativePending = bridge.getPendingUrl();
-    if (nativePending) handleIncomingSharedUrl(nativePending);
-  }
-} catch (e) {
-  console.warn('Could not read Android pending URL:', e);
+for (const earlyUrl of pendingEarlyUrls) {
+  handleIncomingSharedUrl(earlyUrl);
 }
+
+// Poll native Android bridge on startup (in case bridge is injected slightly after page eval)
+let bridgeCheckCount = 0;
+const bridgeCheckInterval = setInterval(() => {
+  bridgeCheckCount++;
+  try {
+    const bridge = (window as any)._AndroidShare;
+    if (bridge && typeof bridge.getPendingUrl === 'function') {
+      const nativePending = bridge.getPendingUrl();
+      if (nativePending && typeof nativePending === 'string' && nativePending.trim()) {
+        console.log('[AndroidShareBridge] Found pending URL:', nativePending);
+        handleIncomingSharedUrl(nativePending);
+        clearInterval(bridgeCheckInterval);
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not read Android pending URL:', e);
+  }
+  if (bridgeCheckCount > 50) {
+    clearInterval(bridgeCheckInterval);
+  }
+}, 100);
 
 /* ───────────────────────── TSX Component Views ───────────────────────── */
 function renderApp(): VNode {
