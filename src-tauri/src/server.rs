@@ -284,8 +284,10 @@ async fn save_handler(Query(q): Query<SaveQuery>, body: Bytes) -> impl IntoRespo
     json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Could not save: {last_err}"))
 }
 
+#[allow(dead_code)]
 static SHARED_URL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+#[allow(dead_code)]
 pub fn set_shared_url(url: String) {
     if let Ok(mut lock) = SHARED_URL.lock() {
         log::info!("Backend received shared URL: {}", url);
