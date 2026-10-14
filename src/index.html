@@ -18,6 +18,7 @@
       <button type="submit" class="primary">Load</button>
     </form>
     <label class="btn">Open file…<input id="file" type="file" accept="video/*,.srt,.vtt,.json3" multiple hidden></label>
+    <button id="btn-history" type="button" class="btn" title="View past subtitle attempts">📜 History (<span id="hist-count">0</span>)</button>
     <span id="status" class="status">ffmpeg.wasm idle</span>
   </header>
 
@@ -99,6 +100,7 @@
           <button id="tidy" title="Capitalise sentence starts and 'I'">Aa Tidy</button>
           <button id="shift" title="Shift every cue by N seconds">Shift…</button>
           <button id="clear-cues" title="Remove all cues">Clear</button>
+          <button id="btn-snap" title="Save snapshot of current subtitles to history">💾 Save Attempt</button>
           <label class="small"><input type="checkbox" id="only-sel" checked> only selection</label>
         </div>
       </div>
@@ -119,6 +121,25 @@
       <textarea class="c-text" rows="2" spellcheck="true"></textarea>
     </div>
   </template>
+
+  <dialog id="history-dialog" class="history-dialog">
+    <div class="history-box">
+      <div class="history-header">
+        <div class="row">
+          <h2>📜 Subtitle History</h2>
+          <span class="spacer"></span>
+          <button id="hist-save-now" class="primary" title="Snapshot current subtitles">+ Snapshot Current</button>
+          <button id="hist-clear" class="btn" title="Clear all subtitle history">Clear All</button>
+          <button id="hist-close" class="btn" title="Close dialog">✕</button>
+        </div>
+        <p class="hint">Switch back to any previous subtitling attempt at any time. Video is not duplicated; only subtitle changes, timings, and selection are preserved.</p>
+        <div class="row">
+          <input id="hist-search" type="search" placeholder="Search by video title or subtitle text…" class="grow">
+        </div>
+      </div>
+      <div id="hist-list" class="history-list"></div>
+    </div>
+  </dialog>
 
   <script type="module" src="app.js"></script>
 </body>

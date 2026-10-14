@@ -7,6 +7,7 @@ It allows you to:
 2. **Drop local media & subtitles** (`.mp4`, `.webm`, `.srt`, `.vtt`, etc.).
 3. **Visual Subtitle Editor**: Fine-tune timing, text, and styles in a WYSIWYG editor.
 4. **Native GIF & Video Export**: Generate looped GIFs, WebP, MP4, or SRT files client-side using `ffmpeg.wasm`.
+5. **Subtitle History & Attempt Switching**: Automatically tracks subtitling revisions and drafts in lightweight local storage without duplicating heavy video files. Switch back to any past attempt, preview previous drafts, or export past `.srt` files anytime.
 
 ![Desktop editor: video preview with subtitle overlay, timeline selection and cue list](docs/screenshot-desktop.png)
 

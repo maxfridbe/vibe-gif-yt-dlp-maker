@@ -298,9 +298,10 @@ async function loadTrack(i, confirmReplace = true) {
     setCues(S.parseSubtitles(await res.text(), c.ext));
     setStatus(`Loaded ${state.cues.length} cues (${c.name})`);
 }
-function setCues(cues) {
+function setCues(cues, skipAutoSnap = false) {
     state.cues = cues.sort((a, b) => a.start - b.start);
     renderCues();
+    if (!skipAutoSnap) scheduleAutoSnapshot();
 }
 /* ───────────────────────── Selection & timeline ───────────────────────── */
 function setSel(start, end) {
@@ -535,8 +536,10 @@ function renderCues() {
 }
 $('cues').addEventListener('input', (e) => {
     const el = e.target.closest('.cue');
-    if (el && e.target.classList.contains('c-text'))
+    if (el && e.target.classList.contains('c-text')) {
         state.cues[+el.dataset.idx].text = e.target.value;
+        scheduleAutoSnapshot();
+    }
 });
 $('cues').addEventListener('change', (e) => {
     const el = e.target.closest('.cue');
@@ -899,3 +902,217 @@ document.addEventListener('keydown', (e) => {
 renderCues();
 // Warm up ffmpeg.wasm in the background so the first merge/render is quick.
 getFF().catch((e) => setStatus(`ffmpeg.wasm failed to load: ${e.message}`));
+
+/* ───────────────────────── Subtitle History ───────────────────────── */
+const HIST_KEY = 'yt_gif_sub_history_v1';
+let autoSnapTimer = null;
+
+function getHistory() {
+    try {
+        return JSON.parse(localStorage.getItem(HIST_KEY) || '[]');
+    } catch {
+        return [];
+    }
+}
+
+function saveHistory(list) {
+    try {
+        localStorage.setItem(HIST_KEY, JSON.stringify(list.slice(0, 60)));
+        updateHistoryCount();
+    } catch (e) {
+        console.warn('Failed to save history:', e);
+    }
+}
+
+function updateHistoryCount() {
+    const el = $('hist-count');
+    if (el) {
+        const count = getHistory().length;
+        el.textContent = count;
+    }
+}
+
+function scheduleAutoSnapshot() {
+    clearTimeout(autoSnapTimer);
+    autoSnapTimer = setTimeout(() => {
+        if (state.cues && state.cues.length) {
+            snapshotAttempt('auto', true);
+        }
+    }, 2000);
+}
+
+function snapshotAttempt(sourceLabel = 'manual', quiet = false) {
+    if (!state.cues || !state.cues.length) {
+        if (!quiet) alert('No subtitles to snapshot. Add or load cues first.');
+        return;
+    }
+    const list = getHistory();
+    const cuesClone = state.cues.map((c) => ({ start: c.start, end: c.end, text: c.text }));
+    const cuesJson = JSON.stringify(cuesClone);
+    const videoTitle = state.title || state.srcName || 'Untitled Video';
+
+    // If top item has identical cues & title, update timestamp
+    if (list.length > 0 && list[0].cuesJson === cuesJson && list[0].videoTitle === videoTitle) {
+        list[0].timestamp = Date.now();
+        saveHistory(list);
+        if (!quiet) setStatus('History snapshot updated');
+        renderHistoryList();
+        return;
+    }
+
+    const item = {
+        id: 'hist_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        timestamp: Date.now(),
+        sourceLabel,
+        videoTitle,
+        cueCount: cuesClone.length,
+        cues: cuesClone,
+        cuesJson,
+        sel: { start: state.sel.start, end: state.sel.end },
+        style: {
+            size: $('st-size')?.value || '20',
+            outline: $('st-outline')?.value || '2',
+            margin: $('st-margin')?.value || '12',
+            color: $('st-color')?.value || '#ffffff',
+        },
+        previewText: cuesClone.slice(0, 5).map((c) => `[${S.fmtShort(c.start)}] ${c.text.trim()}`).join('\n')
+    };
+
+    list.unshift(item);
+    saveHistory(list);
+    if (!quiet) {
+        setStatus(`Saved subtitle snapshot (${cuesClone.length} cues)`);
+    }
+    renderHistoryList();
+}
+
+function restoreAttempt(id) {
+    const list = getHistory();
+    const item = list.find((h) => h.id === id);
+    if (!item) return;
+
+    if (state.cues.length) {
+        snapshotAttempt('auto', true);
+    }
+
+    setCues(item.cues.map((c) => ({ ...c })), true);
+    if (item.sel && item.sel.end > item.sel.start) {
+        setSel(item.sel.start, item.sel.end);
+    }
+    if (item.style) {
+        if ($('st-size')) $('st-size').value = item.style.size;
+        if ($('st-outline')) $('st-outline').value = item.style.outline;
+        if ($('st-margin')) $('st-margin').value = item.style.margin;
+        if ($('st-color')) $('st-color').value = item.style.color;
+        layoutOverlay();
+    }
+    closeHistory();
+    const dateStr = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setStatus(`Switched to subtitle attempt (${item.cueCount} cues, ${dateStr})`);
+}
+
+function exportHistorySRT(id) {
+    const list = getHistory();
+    const item = list.find((h) => h.id === id);
+    if (!item) return;
+    const dur = item.cues[item.cues.length - 1]?.end || 0;
+    const srt = S.toSRT(item.cues, 0, dur);
+    const blob = new Blob([srt], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${slug(item.videoTitle || 'subtitles')}.srt`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function deleteAttempt(id) {
+    let list = getHistory();
+    list = list.filter((h) => h.id !== id);
+    saveHistory(list);
+    renderHistoryList();
+}
+
+function clearAllHistory() {
+    if (!confirm('Clear all subtitle history records?')) return;
+    localStorage.removeItem(HIST_KEY);
+    updateHistoryCount();
+    renderHistoryList();
+    setStatus('Subtitle history cleared');
+}
+
+function openHistory() {
+    renderHistoryList();
+    const dialog = $('history-dialog');
+    if (dialog && typeof dialog.showModal === 'function') {
+        dialog.showModal();
+    }
+}
+
+function closeHistory() {
+    const dialog = $('history-dialog');
+    if (dialog && typeof dialog.close === 'function') {
+        dialog.close();
+    }
+}
+
+function renderHistoryList() {
+    const listEl = $('hist-list');
+    if (!listEl) return;
+    updateHistoryCount();
+    const all = getHistory();
+    const filter = ($('hist-search')?.value || '').trim().toLowerCase();
+    const filtered = filter
+        ? all.filter((item) => item.videoTitle.toLowerCase().includes(filter) || item.cues.some((c) => c.text.toLowerCase().includes(filter)))
+        : all;
+
+    if (!filtered.length) {
+        listEl.innerHTML = `<div class="hist-empty">${all.length ? 'No subtitle attempts match your search.' : 'No saved subtitle attempts yet. Edit or save subtitles to see your history here!'}</div>`;
+        return;
+    }
+
+    const currentTitle = state.title || state.srcName || '';
+    listEl.innerHTML = '';
+    filtered.forEach((item) => {
+        const card = document.createElement('div');
+        card.className = 'hist-card' + (currentTitle && item.videoTitle === currentTitle ? ' active-video' : '');
+        const d = new Date(item.timestamp);
+        const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        card.innerHTML = `
+            <div class="hist-top">
+                <span class="hist-title" title="${item.videoTitle}">${item.videoTitle}</span>
+                <span class="hist-date">${dateStr}</span>
+            </div>
+            <div class="hist-meta">
+                <span class="badge">${item.cueCount} cues</span>
+                ${item.sel && item.sel.end > item.sel.start ? `<span class="badge">Range: ${S.fmtShort(item.sel.start)} – ${S.fmtShort(item.sel.end)}</span>` : ''}
+                <span class="dim">Tag: ${item.sourceLabel || 'snapshot'}</span>
+            </div>
+            <div class="hist-preview">${item.previewText || '(empty cues)'}</div>
+            <div class="hist-actions">
+                <button class="primary act-switch" type="button">↻ Switch to this attempt</button>
+                <button class="btn act-export" type="button">⬇ .srt</button>
+                <button class="btn del act-del" type="button">✕</button>
+            </div>
+        `;
+
+        card.querySelector('.act-switch').onclick = () => restoreAttempt(item.id);
+        card.querySelector('.act-export').onclick = () => exportHistorySRT(item.id);
+        card.querySelector('.act-del').onclick = () => deleteAttempt(item.id);
+        listEl.appendChild(card);
+    });
+}
+
+// Wire history buttons
+$('btn-history')?.addEventListener('click', openHistory);
+$('btn-snap')?.addEventListener('click', () => snapshotAttempt('manual', false));
+$('hist-save-now')?.addEventListener('click', () => snapshotAttempt('manual', false));
+$('hist-clear')?.addEventListener('click', clearAllHistory);
+$('hist-close')?.addEventListener('click', closeHistory);
+$('hist-search')?.addEventListener('input', renderHistoryList);
+$('history-dialog')?.addEventListener('click', (e) => {
+    if (e.target === $('history-dialog')) closeHistory();
+});
+
+updateHistoryCount();
