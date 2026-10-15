@@ -162,12 +162,19 @@ jobs:
           name: youtube-gif-maker-android-apk
           path: artifacts/android
 
+      - name: Extract version
+        id: get_version
+        run: |
+          VERSION=$(jq -r .version src-tauri/tauri.conf.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v26.1014.1
-          name: "YouTube GIF Maker v26.1014.1"
-          body: "Release v26.1014.1 — YouTube GIF Maker cross-platform builds for Linux, macOS, Windows, and Android."
+          tag_name: ${{ steps.get_version.outputs.tag }}
+          name: "YouTube GIF Maker ${{ steps.get_version.outputs.tag }}"
+          body: "Release ${{ steps.get_version.outputs.tag }} — YouTube GIF Maker cross-platform builds for Linux, macOS, Windows, and Android."
           draft: false
           prerelease: false
           make_latest: true
