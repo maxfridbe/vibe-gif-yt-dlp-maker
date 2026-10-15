@@ -26,13 +26,16 @@ export function parseTime(str) {
         return NaN;
     return parts.reduce((acc, p) => acc * 60 + parseFloat(p), 0);
 }
-const stripTags = (s) => s.replace(/<[^>]*>/g, '')
+const stripTags = (s) => s.replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"');
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 function parseBlocks(text) {
     // Shared parser for SRT and WebVTT cue blocks.
     const cues = [];
@@ -93,10 +96,108 @@ export function parseJson3(json) {
     }
     return fixOverlaps(cues);
 }
+/** YouTube timedtext XML (supports srv3 <p t="ms" d="ms"> and format 1 <text start="s" dur="s">). */
+export function parseTimedTextXml(xml) {
+    const cues = [];
+    // Try standard DOMParser first if available
+    if (typeof DOMParser !== 'undefined') {
+        try {
+            const doc = new DOMParser().parseFromString(xml, 'text/xml');
+            // YouTube srv3 format (<p t="ms" d="ms">...</p>)
+            const pElements = doc.querySelectorAll('p');
+            if (pElements.length > 0) {
+                for (let i = 0; i < pElements.length; i++) {
+                    const el = pElements[i];
+                    const t = el.getAttribute('t');
+                    if (t === null)
+                        continue;
+                    const text = (el.textContent || '').replace(/\s*\n\s*/g, '\n').trim();
+                    if (!text)
+                        continue;
+                    const start = parseFloat(t) / 1000;
+                    const dur = el.getAttribute('d') ? parseFloat(el.getAttribute('d')) / 1000 : 2;
+                    cues.push({ start, end: start + dur, text });
+                }
+                if (cues.length > 0)
+                    return fixOverlaps(cues);
+            }
+            // YouTube format 1 (<text start="s" dur="s">...</text>)
+            const textElements = doc.querySelectorAll('text');
+            if (textElements.length > 0) {
+                for (let i = 0; i < textElements.length; i++) {
+                    const el = textElements[i];
+                    const startAttr = el.getAttribute('start');
+                    if (startAttr === null)
+                        continue;
+                    const text = (el.textContent || '').replace(/\s*\n\s*/g, '\n').trim();
+                    if (!text)
+                        continue;
+                    const start = parseFloat(startAttr);
+                    const dur = el.getAttribute('dur') ? parseFloat(el.getAttribute('dur')) : 2;
+                    cues.push({ start, end: start + dur, text });
+                }
+                if (cues.length > 0)
+                    return fixOverlaps(cues);
+            }
+        }
+        catch (e) {
+            console.warn('DOMParser failed, falling back to regex:', e);
+        }
+    }
+    // Regex fallback: format 3 (<p t="..." d="...">...</p>)
+    const pRegex = /<p\b([^>]*)>([\s\S]*?)<\/p>/gi;
+    let m;
+    while ((m = pRegex.exec(xml)) !== null) {
+        const attrs = m[1];
+        const tMatch = /\bt=["']?(\d+)/.exec(attrs);
+        if (!tMatch)
+            continue;
+        const dMatch = /\bd=["']?(\d+)/.exec(attrs);
+        const start = parseInt(tMatch[1], 10) / 1000;
+        const dur = dMatch ? parseInt(dMatch[1], 10) / 1000 : 2;
+        const text = stripTags(m[2]).replace(/\s*\n\s*/g, '\n').trim();
+        if (text) {
+            cues.push({ start, end: start + dur, text });
+        }
+    }
+    if (cues.length > 0)
+        return fixOverlaps(cues);
+    // Regex fallback: format 1 (<text start="..." dur="...">...</text>)
+    const textRegex = /<text\b([^>]*)>([\s\S]*?)<\/text>/gi;
+    while ((m = textRegex.exec(xml)) !== null) {
+        const attrs = m[1];
+        const startMatch = /\bstart=["']?([\d.]+)/.exec(attrs);
+        if (!startMatch)
+            continue;
+        const durMatch = /\bdur=["']?([\d.]+)/.exec(attrs);
+        const start = parseFloat(startMatch[1]);
+        const dur = durMatch ? parseFloat(durMatch[1]) : 2;
+        const text = stripTags(m[2]).replace(/\s*\n\s*/g, '\n').trim();
+        if (text) {
+            cues.push({ start, end: start + dur, text });
+        }
+    }
+    return fixOverlaps(cues);
+}
 export function parseSubtitles(text, hint = '') {
     const t = text.trimStart();
-    if (hint === 'json3' || t.startsWith('{'))
-        return parseJson3(t);
+    if (t.startsWith('<?xml') || t.startsWith('<timedtext') || t.startsWith('<transcript')) {
+        return parseTimedTextXml(t);
+    }
+    if (hint === 'json3' || t.startsWith('{')) {
+        try {
+            return parseJson3(t);
+        }
+        catch (e) {
+            console.warn('parseJson3 failed, attempting XML parse:', e);
+            if (t.includes('<timedtext') || t.includes('<transcript') || t.includes('<p ') || t.includes('<text ')) {
+                return parseTimedTextXml(t);
+            }
+        }
+    }
+    if (t.includes('<timedtext') || t.includes('<transcript')) {
+        return parseTimedTextXml(t);
+    }
     return dedupeRolling(parseBlocks(t));
 }
 export function toSRT(cues, offset = 0, clipLen = Infinity) {

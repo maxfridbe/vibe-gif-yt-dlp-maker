@@ -4941,7 +4941,7 @@ dependencies = [
 
 [[package]]
 name = "youtube-gif-maker"
-version = "26.1014.1"
+version = "26.1014.2"
 dependencies = [
  "axum",
  "jni 0.21.1",

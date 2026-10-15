@@ -355,7 +355,9 @@ async function loadUrl(raw: string) {
         await f.deleteFile('/work/mux.mp4');
       }
       await setSource(bytes, `${slug(info.title || 'video')}.mp4`, info.title || url);
-      if (info.captions?.length) loadTrack(0, false).catch((e) => console.warn(e));
+      if (info.captions?.length) {
+        await loadTrack(state.selectedTrack, false);
+      }
     } else {
       const name = decodeURIComponent(u.pathname.split('/').pop() || 'video.mp4');
       showProgress(null, `Fetching ${name}…`);
@@ -403,7 +405,29 @@ async function setSource(bytes: Uint8Array, name: string, title: string, already
 
 function setCaptionTracks(list: CaptionTrack[]) {
   state.captions = list;
-  state.selectedTrack = 0;
+  let bestIndex = 0;
+  if (list.length > 1) {
+    // 1. English manual track
+    const enManual = list.findIndex(
+      (c) => (c.lang === 'en' || c.lang.startsWith('en-')) && !c.name.toLowerCase().includes('auto')
+    );
+    if (enManual >= 0) {
+      bestIndex = enManual;
+    } else {
+      // 2. Any English track
+      const anyEn = list.findIndex((c) => c.lang === 'en' || c.lang.startsWith('en-'));
+      if (anyEn >= 0) {
+        bestIndex = anyEn;
+      } else {
+        // 3. Any manual track
+        const anyManual = list.findIndex((c) => !c.name.toLowerCase().includes('auto'));
+        if (anyManual >= 0) {
+          bestIndex = anyManual;
+        }
+      }
+    }
+  }
+  state.selectedTrack = bestIndex;
   update();
 }
 
@@ -412,10 +436,17 @@ async function loadTrack(i: number, confirmReplace = true) {
   if (!c) return;
   if (confirmReplace && state.cues.length && !confirm('Replace the current subtitles?')) return;
   setStatus(`Loading captions: ${c.name}…`);
-  const res = await fetch(`/api/fetch?url=${encodeURIComponent(c.url)}`);
-  if (!res.ok) throw new Error(`captions: HTTP ${res.status}`);
-  setCues(S.parseSubtitles(await res.text(), c.ext));
-  setStatus(`Loaded ${state.cues.length} cues (${c.name})`);
+  try {
+    const res = await fetch(`/api/fetch?url=${encodeURIComponent(c.url)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const cues = S.parseSubtitles(text, c.ext);
+    setCues(cues);
+    setStatus(`Loaded ${cues.length} cues (${c.name})`);
+  } catch (err: any) {
+    console.error('Failed to load captions:', err);
+    setStatus(`Failed to load captions: ${err.message || err}`);
+  }
 }
 
 function setCues(cues: S.Cue[], skipAutoSnap = false) {

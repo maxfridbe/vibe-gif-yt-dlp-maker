@@ -112,6 +112,26 @@ async fn resolve_handler(Query(query): Query<ResolveQuery>) -> impl IntoResponse
     };
     let ext = if best["mimeType"].as_str().is_some_and(|m| m.starts_with("video/webm")) { "webm" } else { "mp4" };
 
+fn format_caption_url(raw: &str) -> String {
+    if let Ok(mut u) = reqwest::Url::parse(raw) {
+        let pairs: Vec<(String, String)> = u
+            .query_pairs()
+            .filter(|(k, _)| k != "fmt")
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+        u.set_query(None);
+        let mut qp = u.query_pairs_mut();
+        for (k, v) in pairs {
+            qp.append_pair(&k, &v);
+        }
+        qp.append_pair("fmt", "json3");
+        drop(qp);
+        u.to_string()
+    } else {
+        format!("{raw}&fmt=json3")
+    }
+}
+
     let captions: Vec<_> = player["captions"]["playerCaptionsTracklistRenderer"]["captionTracks"]
         .as_array()
         .into_iter()
@@ -122,7 +142,7 @@ async fn resolve_handler(Query(query): Query<ResolveQuery>) -> impl IntoResponse
             Some(serde_json::json!({
                 "name": name,
                 "lang": t["languageCode"].as_str().unwrap_or(""),
-                "url": format!("{url}&fmt=json3"),
+                "url": format_caption_url(url),
                 "ext": "json3",
             }))
         })
