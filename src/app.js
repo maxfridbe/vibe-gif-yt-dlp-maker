@@ -442,14 +442,22 @@ function drawTimeline() {
     ctx.clearRect(0, 0, W, H);
     if (!state.duration)
         return;
+    const cs = getComputedStyle(document.documentElement);
+    const cDim = cs.getPropertyValue('--dim').trim() || '#8a929e';
+    const cLine = cs.getPropertyValue('--line').trim() || '#333a44';
+    const cCue = cs.getPropertyValue('--tl-cue').trim() || '#2f5d8f';
+    const cCueFg = cs.getPropertyValue('--tl-cue-fg').trim() || '#e6e8eb';
+    const cSelFill = cs.getPropertyValue('--tl-sel-fill').trim() || 'rgba(255,210,63,0.16)';
+    const cSel = cs.getPropertyValue('--sel').trim() || '#ffd23f';
+    const cDanger = cs.getPropertyValue('--danger').trim() || '#ff6b6b';
     const { from, to } = state.view;
     const span = to - from;
     // Ruler ticks
     const steps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800];
     const step = steps.find((s) => (s / span) * W >= 80 * r) || 3600;
     ctx.font = `${11 * r}px system-ui`;
-    ctx.fillStyle = '#8a929e';
-    ctx.strokeStyle = '#333a44';
+    ctx.fillStyle = cDim;
+    ctx.strokeStyle = cLine;
     ctx.lineWidth = 1;
     for (let t = Math.ceil(from / step) * step; t <= to; t += step) {
         const x = Math.round(tToX(t)) + 0.5;
@@ -468,14 +476,14 @@ function drawTimeline() {
             continue;
         const x0 = tToX(c.start);
         const x1 = tToX(c.end);
-        ctx.fillStyle = '#2f5d8f';
+        ctx.fillStyle = cCue;
         ctx.fillRect(x0, cy, Math.max(1, x1 - x0 - 1), ch);
         if (x1 - x0 > 24 * r) {
             ctx.save();
             ctx.beginPath();
             ctx.rect(x0, cy, x1 - x0 - 2, ch);
             ctx.clip();
-            ctx.fillStyle = '#e6e8eb';
+            ctx.fillStyle = cCueFg;
             ctx.fillText(c.text.replace(/\n/g, ' '), x0 + 3 * r, cy + 18 * r);
             ctx.restore();
         }
@@ -483,17 +491,20 @@ function drawTimeline() {
     // Selection
     const sx = tToX(state.sel.start);
     const ex = tToX(state.sel.end);
-    ctx.fillStyle = 'rgba(255,210,63,0.16)';
+    ctx.fillStyle = cSelFill;
     ctx.fillRect(sx, 14 * r, ex - sx, H - 14 * r);
-    ctx.fillStyle = '#ffd23f';
+    ctx.fillStyle = cSel;
     for (const x of [sx, ex]) {
         ctx.fillRect(x - 1.5 * r, 14 * r, 3 * r, H - 14 * r);
         ctx.fillRect(x - 5 * r, H - 14 * r, 10 * r, 14 * r);
     }
     // Playhead
     const px = tToX(video ? video.currentTime : state.currentTime);
-    ctx.fillStyle = '#ff6b6b';
+    ctx.fillStyle = cDanger;
     ctx.fillRect(px - r, 0, 2 * r, H);
+}
+if (typeof window.matchMedia === 'function') {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => drawTimeline());
 }
 let drag = null;
 function setupTimelineCanvas(canvas) {

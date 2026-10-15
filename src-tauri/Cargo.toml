@@ -1,6 +1,6 @@
 [package]
 name = "youtube-gif-maker"
-version = "26.1015.1"
+version = "26.1015.2"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
