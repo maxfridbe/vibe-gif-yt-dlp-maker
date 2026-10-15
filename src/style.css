@@ -67,7 +67,8 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px; pa
 .result { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
 .result img, .result video { width: 100%; border-radius: 4px; background: #000; display: block; }
 .result pre { max-height: 140px; overflow: auto; font-size: 11px; margin: 0; white-space: pre-wrap; }
-.result .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 12px; }
+.result .meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+.result-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .result a { color: var(--accent); font-weight: 600; text-decoration: none; }
 
 .subs-head { padding: 10px 12px; border-bottom: 1px solid var(--line); }

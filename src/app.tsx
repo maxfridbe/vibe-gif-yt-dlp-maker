@@ -264,6 +264,9 @@ const mimeFor = (name: string): string =>
     mov: 'video/quicktime',
     webm: 'video/webm',
     mkv: 'video/x-matroska',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    srt: 'text/plain',
   }[name.split('.').pop()?.toLowerCase() || ''] || 'video/mp4');
 
 async function api(path: string): Promise<any> {
@@ -963,6 +966,94 @@ async function saveResultNative(item: RenderResultItem) {
   }
 }
 
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+
+function canShareResult(item: RenderResultItem): boolean {
+  if (NATIVE && IS_ANDROID) return true;
+  if (typeof (window as any)._AndroidShare?.shareFile === 'function') return true;
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    if (typeof navigator.canShare === 'function') {
+      try {
+        const mime = item.blob.type || mimeFor(item.name);
+        const file = new File([item.blob], item.name, { type: mime });
+        if (navigator.canShare({ files: [file] })) return true;
+      } catch {
+        // ignore File construction errors
+      }
+      if (item.text && navigator.canShare({ text: item.text })) return true;
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+async function shareResult(item: RenderResultItem) {
+  try {
+    const mime = item.blob.type || mimeFor(item.name);
+
+    // 1. Native Android Share (via Rust /api/share JNI + JS bridge fallback)
+    if ((NATIVE && IS_ANDROID) || typeof (window as any)._AndroidShare?.shareFile === 'function') {
+      setStatus(`Sharing ${item.name}…`);
+      const existingParam = item.savePath ? `&path=${encodeURIComponent(item.savePath)}` : '';
+      const res = await fetch(
+        `/api/share?name=${encodeURIComponent(item.name)}&mime=${encodeURIComponent(mime)}${existingParam}`,
+        {
+          method: 'POST',
+          body: item.blob,
+        }
+      );
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+      if (out.path) {
+        item.saved = true;
+        item.savePath = out.path;
+      }
+      if (!out.shared && out.path && typeof (window as any)._AndroidShare?.shareFile === 'function') {
+        (window as any)._AndroidShare.shareFile(out.path, mime, item.name);
+      }
+      setStatus(`Shared ${item.name}`);
+      update();
+      return;
+    }
+
+    // 2. Web Share API (Mobile / Desktop Browsers / iOS / macOS)
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      const file = new File([item.blob], item.name, { type: mime });
+      if (typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: item.name,
+        });
+        setStatus(`Shared ${item.name}`);
+        return;
+      }
+      if (item.text) {
+        await navigator.share({
+          title: item.name,
+          text: item.text,
+        });
+        setStatus(`Shared ${item.name}`);
+        return;
+      }
+    }
+
+    throw new Error('Sharing is not supported on this platform');
+  } catch (e: any) {
+    if (
+      e &&
+      (e.name === 'AbortError' ||
+        String(e.message).toLowerCase().includes('cancel') ||
+        String(e.message).toLowerCase().includes('abort'))
+    ) {
+      setStatus('Share cancelled');
+      return;
+    }
+    alert(`Share failed: ${e.message}`);
+    setStatus(`Share failed: ${e.message}`);
+  }
+}
+
 /* ───────────────────────── Files & Drag/Drop ───────────────────────── */
 async function openFiles(files: File[]) {
   for (const file of files) {
@@ -1595,20 +1686,32 @@ function renderApp(): VNode {
                     <img src={res.url} alt={res.name} />
                   )}
                   <div class="meta">
-                    {NATIVE ? (
-                      <button
-                        type="button"
-                        class="primary"
-                        disabled={res.saved}
-                        onClick={() => saveResultNative(res)}
-                      >
-                        {res.saved ? '✓ Saved' : `💾 Save ${res.name}`}
-                      </button>
-                    ) : (
-                      <a href={res.url} download={res.name}>
-                        ⬇ {res.name}
-                      </a>
-                    )}
+                    <div class="result-actions">
+                      {NATIVE ? (
+                        <button
+                          type="button"
+                          class="primary"
+                          disabled={res.saved}
+                          onClick={() => saveResultNative(res)}
+                        >
+                          {res.saved ? '✓ Saved' : `💾 Save ${res.name}`}
+                        </button>
+                      ) : (
+                        <a href={res.url} download={res.name}>
+                          ⬇ {res.name}
+                        </a>
+                      )}
+                      {canShareResult(res) ? (
+                        <button
+                          type="button"
+                          class="share-btn"
+                          title={`Share ${res.name}`}
+                          onClick={() => shareResult(res)}
+                        >
+                          📤 Share
+                        </button>
+                      ) : null}
+                    </div>
                     <span class="dim">{fmtBytes(res.size)}</span>
                   </div>
                 </div>

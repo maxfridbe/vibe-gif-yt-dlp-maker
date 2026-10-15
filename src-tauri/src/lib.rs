@@ -48,6 +48,72 @@ pub fn run() {
 }
 
 #[cfg(target_os = "android")]
+static ANDROID_VM: std::sync::OnceLock<jni::JavaVM> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+static ANDROID_ACTIVITY: std::sync::Mutex<Option<jni::objects::GlobalRef>> = std::sync::Mutex::new(None);
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_maxfridbe_youtubegifmaker_MainActivity_nativeRegisterActivity(
+    env: jni::JNIEnv,
+    _: jni::objects::JClass,
+    activity: jni::objects::JObject,
+) {
+    if let Ok(vm) = env.get_java_vm() {
+        let _ = ANDROID_VM.set(vm);
+    }
+    if let Ok(global) = env.new_global_ref(activity) {
+        if let Ok(mut lock) = ANDROID_ACTIVITY.lock() {
+            *lock = Some(global);
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+pub fn share_file_android(path: &str, mime: &str, title: &str) -> bool {
+    let Some(vm) = ANDROID_VM.get() else {
+        return false;
+    };
+    let Ok(mut env) = vm.attach_current_thread() else {
+        return false;
+    };
+    let act_opt = ANDROID_ACTIVITY.lock().ok().and_then(|g| g.clone());
+    let Some(act) = act_opt else {
+        return false;
+    };
+    let Ok(j_path) = env.new_string(path) else {
+        return false;
+    };
+    let Ok(j_mime) = env.new_string(mime) else {
+        return false;
+    };
+    let Ok(j_title) = env.new_string(title) else {
+        return false;
+    };
+    let j_path_obj: jni::objects::JObject = j_path.into();
+    let j_mime_obj: jni::objects::JObject = j_mime.into();
+    let j_title_obj: jni::objects::JObject = j_title.into();
+    match env.call_method(
+        &act,
+        "shareFileInternal",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
+        &[
+            jni::objects::JValue::Object(&j_path_obj),
+            jni::objects::JValue::Object(&j_mime_obj),
+            jni::objects::JValue::Object(&j_title_obj),
+        ],
+    ) {
+        Ok(val) => val.z().unwrap_or(false),
+        Err(e) => {
+            log::warn!("shareFileInternal JNI call failed: {}", e);
+            let _ = env.exception_clear();
+            false
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Java_com_maxfridbe_youtubegifmaker_MainActivity_nativeSetSharedUrl(
     mut env: jni::JNIEnv,

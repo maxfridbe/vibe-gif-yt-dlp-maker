@@ -279,10 +279,14 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
         .unwrap()
 }
 
-/// Writes an uploaded clip to disk. Needed because WebViews (notably Android's)
-/// ignore `<a download>` on blob: URLs, so the browser-style download never happens.
-async fn save_handler(Query(q): Query<SaveQuery>, body: Bytes) -> impl IntoResponse {
-    let name = sanitize_filename(&q.name);
+async fn write_clip_to_disk(raw_name: &str, existing_path: Option<&str>, body: &Bytes) -> Result<PathBuf, String> {
+    if let Some(p) = existing_path {
+        let p_buf = PathBuf::from(p);
+        if !p.is_empty() && p_buf.exists() {
+            return Ok(p_buf);
+        }
+    }
+    let name = sanitize_filename(raw_name);
     let mut last_err = String::from("no writable folder");
     for dir in save_dirs() {
         if let Err(e) = tokio::fs::create_dir_all(&dir).await {
@@ -290,18 +294,59 @@ async fn save_handler(Query(q): Query<SaveQuery>, body: Bytes) -> impl IntoRespo
             continue;
         }
         let path = unique_path(&dir, &name);
-        match tokio::fs::write(&path, &body).await {
-            Ok(()) => {
-                let result = serde_json::json!({ "path": path.to_string_lossy() });
-                return Response::builder()
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(result.to_string()))
-                    .unwrap();
-            }
+        match tokio::fs::write(&path, body).await {
+            Ok(()) => return Ok(path),
             Err(e) => last_err = format!("{}: {e}", path.display()),
         }
     }
-    json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Could not save: {last_err}"))
+    Err(format!("Could not save: {last_err}"))
+}
+
+/// Writes an uploaded clip to disk. Needed because WebViews (notably Android's)
+/// ignore `<a download>` on blob: URLs, so the browser-style download never happens.
+async fn save_handler(Query(q): Query<SaveQuery>, body: Bytes) -> impl IntoResponse {
+    match write_clip_to_disk(&q.name, None, &body).await {
+        Ok(path) => {
+            let result = serde_json::json!({ "path": path.to_string_lossy() });
+            Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(result.to_string()))
+                .unwrap()
+        }
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ShareQuery {
+    name: String,
+    mime: Option<String>,
+    path: Option<String>,
+}
+
+async fn share_handler(Query(q): Query<ShareQuery>, body: Bytes) -> impl IntoResponse {
+    let path = match write_clip_to_disk(&q.name, q.path.as_deref(), &body).await {
+        Ok(p) => p,
+        Err(e) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, e),
+    };
+    let path_str = path.to_string_lossy().to_string();
+    let clean_name = sanitize_filename(&q.name);
+    let _mime = q.mime.as_deref().unwrap_or("");
+
+    #[cfg(target_os = "android")]
+    let shared = crate::share_file_android(&path_str, _mime, &clean_name);
+    #[cfg(not(target_os = "android"))]
+    let shared = false;
+    let _ = clean_name;
+
+    let result = serde_json::json!({
+        "path": path_str,
+        "shared": shared,
+    });
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(result.to_string()))
+        .unwrap()
 }
 
 #[allow(dead_code)]
@@ -346,6 +391,7 @@ pub async fn start_server(listener: tokio::net::TcpListener, assets: tauri::Asse
         .route("/api/resolve", get(resolve_handler))
         .route("/api/fetch", get(fetch_handler))
         .route("/api/save", post(save_handler).layer(DefaultBodyLimit::max(2 * 1024 * 1024 * 1024)))
+        .route("/api/share", post(share_handler).layer(DefaultBodyLimit::max(2 * 1024 * 1024 * 1024)))
         .route("/api/shared-url", get(shared_url_handler))
         .route("/api/shared-url/clear", post(clear_shared_url_handler))
         .fallback(static_handler)

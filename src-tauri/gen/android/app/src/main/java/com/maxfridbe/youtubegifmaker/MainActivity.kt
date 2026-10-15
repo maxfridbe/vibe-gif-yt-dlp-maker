@@ -33,6 +33,9 @@ class MainActivity : TauriActivity() {
     @JvmStatic
     external fun nativeSetSharedUrl(url: String)
 
+    @JvmStatic
+    external fun nativeRegisterActivity(activity: MainActivity)
+
     private val YOUTUBE_URL_REGEX = Regex("""(?:https?://)?(?:[a-zA-Z0-9-]+\.)*(?:youtube\.com|youtu\.be)/[^\s"'<>]+""")
     private val GENERIC_URL_REGEX = Regex("""https?://[^\s"'<>]+""")
 
@@ -135,6 +138,65 @@ class MainActivity : TauriActivity() {
       Log.i(TAG, "AndroidShareBridge.clearPendingUrl() called")
       pendingSharedUrl = null
     }
+
+    @JavascriptInterface
+    fun canShare(): Boolean = true
+
+    @JavascriptInterface
+    fun shareFile(filePath: String, mimeType: String, title: String): Boolean {
+      Log.i(TAG, "AndroidShareBridge.shareFile($filePath, $mimeType, $title)")
+      return shareFileInternal(filePath, mimeType, title)
+    }
+  }
+
+  fun shareFileInternal(filePath: String, mimeType: String, title: String): Boolean {
+    return try {
+      val srcFile = java.io.File(filePath)
+      if (!srcFile.exists()) {
+        Log.e(TAG, "shareFileInternal: file does not exist: $filePath")
+        return false
+      }
+      val authority = "${applicationContext.packageName}.fileprovider"
+      val uri = try {
+        androidx.core.content.FileProvider.getUriForFile(this, authority, srcFile)
+      } catch (e: IllegalArgumentException) {
+        val shareDir = java.io.File(cacheDir, "shared")
+        shareDir.mkdirs()
+        val dstFile = java.io.File(shareDir, srcFile.name)
+        srcFile.copyTo(dstFile, overwrite = true)
+        androidx.core.content.FileProvider.getUriForFile(this, authority, dstFile)
+      }
+      val resolvedMime = mimeType.ifBlank {
+        when (srcFile.extension.lowercase()) {
+          "gif" -> "image/gif"
+          "webp" -> "image/webp"
+          "mp4" -> "video/mp4"
+          "webm" -> "video/webm"
+          "srt" -> "text/plain"
+          else -> "*/*"
+        }
+      }
+      val displayTitle = title.ifBlank { srcFile.name }
+      mainHandler.post {
+        try {
+          val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = resolvedMime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TITLE, displayTitle)
+            clipData = android.content.ClipData.newRawUri(displayTitle, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+          }
+          val chooser = Intent.createChooser(sendIntent, displayTitle)
+          startActivity(chooser)
+        } catch (e: Throwable) {
+          Log.e(TAG, "Failed to launch share chooser: $e", e)
+        }
+      }
+      true
+    } catch (e: Throwable) {
+      Log.e(TAG, "shareFileInternal failed: $e", e)
+      false
+    }
   }
 
   private fun findWebView(view: View?): WebView? {
@@ -213,6 +275,12 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+
+    try {
+      nativeRegisterActivity(this)
+    } catch (e: Throwable) {
+      Log.w(TAG, "nativeRegisterActivity failed: $e")
+    }
 
     extractUrlFromIntent(intent)?.let {
       onUrlReceived(it, "onCreate")
