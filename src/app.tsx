@@ -48,6 +48,7 @@ export interface RenderResultItem {
   size: number;
   saved?: boolean;
   savePath?: string;
+  savedAt?: string;
 }
 
 export interface CaptionTrack {
@@ -100,6 +101,9 @@ const state = {
 
   // Results
   results: [] as RenderResultItem[],
+
+  // Toast notification
+  toast: null as { name: string; path: string; time: string } | null,
 
   // History dialog
   historyOpen: false,
@@ -961,18 +965,59 @@ function addResultItem(name: string, ext: string, blob: Blob, text?: string) {
   update();
 }
 
+let toastTimer: any = null;
+
+function showSaveToast(name: string, path: string, timeStr: string) {
+  state.toast = { name, path, time: timeStr };
+  update();
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    state.toast = null;
+    update();
+  }, 8000);
+
+  // Also trigger desktop/browser Notification API if available
+  if (typeof window !== 'undefined' && 'Notification' in window) {
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification(`Saved ${name} at ${timeStr}`, { body: `Saved to: ${path}` });
+      } catch {
+        // ignore
+      }
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then((perm) => {
+        if (perm === 'granted') {
+          try {
+            new Notification(`Saved ${name} at ${timeStr}`, { body: `Saved to: ${path}` });
+          } catch {
+            // ignore
+          }
+        }
+      });
+    }
+  }
+}
+
 async function saveResultNative(item: RenderResultItem) {
   try {
-    const res = await fetch(`/api/save?name=${encodeURIComponent(item.name)}`, {
-      method: 'POST',
-      body: item.blob,
-    });
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const res = await fetch(
+      `/api/save?name=${encodeURIComponent(item.name)}&time=${encodeURIComponent(timeStr)}`,
+      {
+        method: 'POST',
+        body: item.blob,
+      }
+    );
     const out = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
     item.saved = true;
     item.savePath = out.path;
-    setStatus(`Saved to ${out.path}`);
-    update();
+    item.savedAt = timeStr;
+    if (!out.notified && typeof (window as any)._AndroidShare?.notifySaved === 'function') {
+      (window as any)._AndroidShare.notifySaved(out.path, timeStr);
+    }
+    setStatus(`Saved at ${timeStr} to ${out.path}`);
+    showSaveToast(item.name, out.path, timeStr);
   } catch (e: any) {
     alert(`Save failed: ${e.message}`);
     setStatus(`Save failed: ${e.message}`);
@@ -1008,6 +1053,8 @@ async function shareResult(item: RenderResultItem) {
     // 1. Native Android Share (via Rust /api/share JNI + JS bridge fallback)
     if ((NATIVE && IS_ANDROID) || typeof (window as any)._AndroidShare?.shareFile === 'function') {
       setStatus(`Sharing ${item.name}…`);
+      const wasAlreadySaved = Boolean(item.savePath);
+      const timeStr = item.savedAt || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const existingParam = item.savePath ? `&path=${encodeURIComponent(item.savePath)}` : '';
       const res = await fetch(
         `/api/share?name=${encodeURIComponent(item.name)}&mime=${encodeURIComponent(mime)}${existingParam}`,
@@ -1021,6 +1068,10 @@ async function shareResult(item: RenderResultItem) {
       if (out.path) {
         item.saved = true;
         item.savePath = out.path;
+        item.savedAt = timeStr;
+        if (!wasAlreadySaved) {
+          showSaveToast(item.name, out.path, timeStr);
+        }
       }
       if (!out.shared && out.path && typeof (window as any)._AndroidShare?.shareFile === 'function') {
         (window as any)._AndroidShare.shareFile(out.path, mime, item.name);
@@ -1710,7 +1761,21 @@ function renderApp(): VNode {
                           {res.saved ? '✓ Saved' : `💾 Save ${res.name}`}
                         </button>
                       ) : (
-                        <a href={res.url} download={res.name}>
+                        <a
+                          href={res.url}
+                          download={res.name}
+                          onClick={() => {
+                            const timeStr = new Date().toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            });
+                            res.saved = true;
+                            res.savePath = `Downloads/${res.name}`;
+                            res.savedAt = timeStr;
+                            showSaveToast(res.name, res.savePath, timeStr);
+                          }}
+                        >
                           ⬇ {res.name}
                         </a>
                       )}
@@ -1727,6 +1792,11 @@ function renderApp(): VNode {
                     </div>
                     <span class="dim">{fmtBytes(res.size)}</span>
                   </div>
+                  {res.savePath ? (
+                    <div class="saved-info">
+                      ✓ Saved {res.savedAt ? `at ${res.savedAt} ` : ''}to <code>{res.savePath}</code>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -2001,6 +2071,31 @@ function renderApp(): VNode {
             </div>
           </div>
         </dialog>
+      ) : null}
+
+      {/* ── Save Toast Notification Banner ── */}
+      {state.toast ? (
+        <div class="toast-banner" role="status" aria-live="polite">
+          <div class="toast-head">
+            <strong>
+              ✓ Saved {state.toast.name} at {state.toast.time}
+            </strong>
+            <button
+              type="button"
+              class="toast-close"
+              title="Dismiss notification"
+              onClick={() => {
+                state.toast = null;
+                update();
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <div class="toast-path">
+            Saved to: <code>{state.toast.path}</code>
+          </div>
+        </div>
       ) : null}
     </div>
   );

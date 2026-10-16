@@ -147,6 +147,101 @@ class MainActivity : TauriActivity() {
       Log.i(TAG, "AndroidShareBridge.shareFile($filePath, $mimeType, $title)")
       return shareFileInternal(filePath, mimeType, title)
     }
+
+    @JavascriptInterface
+    fun notifySaved(filePath: String, timeStr: String): Boolean {
+      Log.i(TAG, "AndroidShareBridge.notifySaved($filePath, $timeStr)")
+      return notifySavedInternal(filePath, timeStr)
+    }
+  }
+
+  fun notifySavedInternal(filePath: String, timeStr: String): Boolean {
+    return try {
+      val srcFile = java.io.File(filePath)
+      val displayTime = timeStr.ifBlank {
+        java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+      }
+      // Index in Android MediaStore so Downloads / Gallery apps see it immediately
+      try {
+        android.media.MediaScannerConnection.scanFile(this, arrayOf(filePath), null, null)
+      } catch (e: Throwable) {
+        Log.w(TAG, "MediaScannerConnection failed: $e")
+      }
+
+      mainHandler.post {
+        try {
+          android.widget.Toast.makeText(
+            this,
+            "Saved at $displayTime to:\n$filePath",
+            android.widget.Toast.LENGTH_LONG
+          ).show()
+        } catch (e: Throwable) {
+          Log.w(TAG, "Toast failed: $e")
+        }
+
+        try {
+          val nm = getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+          val channelId = "saved_clips_channel"
+          if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+              channelId,
+              "Saved Clips",
+              android.app.NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+              description = "Notifications when clips or GIFs are saved"
+            }
+            nm.createNotificationChannel(channel)
+          }
+
+          val builder = androidx.core.app.NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("Saved ${srcFile.name} ($displayTime)")
+            .setContentText(filePath)
+            .setStyle(
+              androidx.core.app.NotificationCompat.BigTextStyle()
+                .bigText("Saved at $displayTime to:\n$filePath")
+            )
+            .setAutoCancel(true)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+
+          if (srcFile.exists()) {
+            try {
+              val authority = "${applicationContext.packageName}.fileprovider"
+              val uri = androidx.core.content.FileProvider.getUriForFile(this, authority, srcFile)
+              val mime = when (srcFile.extension.lowercase()) {
+                "gif" -> "image/gif"
+                "webp" -> "image/webp"
+                "mp4" -> "video/mp4"
+                "webm" -> "video/webm"
+                "srt" -> "text/plain"
+                else -> "*/*"
+              }
+              val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+              }
+              val pendingFlags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+              } else {
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT
+              }
+              val pi = android.app.PendingIntent.getActivity(this, filePath.hashCode(), viewIntent, pendingFlags)
+              builder.setContentIntent(pi)
+            } catch (e: Throwable) {
+              Log.w(TAG, "Could not attach view intent to notification: $e")
+            }
+          }
+
+          nm.notify(filePath.hashCode(), builder.build())
+        } catch (e: Throwable) {
+          Log.w(TAG, "System notification failed: $e")
+        }
+      }
+      true
+    } catch (e: Throwable) {
+      Log.e(TAG, "notifySavedInternal failed: $e", e)
+      false
+    }
   }
 
   fun shareFileInternal(filePath: String, mimeType: String, title: String): Boolean {
@@ -280,6 +375,12 @@ class MainActivity : TauriActivity() {
       nativeRegisterActivity(this)
     } catch (e: Throwable) {
       Log.w(TAG, "nativeRegisterActivity failed: $e")
+    }
+
+    if (android.os.Build.VERSION.SDK_INT >= 33) {
+      if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 1001)
+      }
     }
 
     extractUrlFromIntent(intent)?.let {

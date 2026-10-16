@@ -60,6 +60,8 @@ const state = {
     progressText: '',
     // Results
     results: [],
+    // Toast notification
+    toast: null,
     // History dialog
     historyOpen: false,
     historySearch: '',
@@ -915,9 +917,43 @@ function addResultItem(name, ext, blob, text) {
     state.results.unshift(item);
     update();
 }
+let toastTimer = null;
+function showSaveToast(name, path, timeStr) {
+    state.toast = { name, path, time: timeStr };
+    update();
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+        state.toast = null;
+        update();
+    }, 8000);
+    // Also trigger desktop/browser Notification API if available
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+        if (Notification.permission === 'granted') {
+            try {
+                new Notification(`Saved ${name} at ${timeStr}`, { body: `Saved to: ${path}` });
+            }
+            catch {
+                // ignore
+            }
+        }
+        else if (Notification.permission !== 'denied') {
+            Notification.requestPermission().then((perm) => {
+                if (perm === 'granted') {
+                    try {
+                        new Notification(`Saved ${name} at ${timeStr}`, { body: `Saved to: ${path}` });
+                    }
+                    catch {
+                        // ignore
+                    }
+                }
+            });
+        }
+    }
+}
 async function saveResultNative(item) {
     try {
-        const res = await fetch(`/api/save?name=${encodeURIComponent(item.name)}`, {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const res = await fetch(`/api/save?name=${encodeURIComponent(item.name)}&time=${encodeURIComponent(timeStr)}`, {
             method: 'POST',
             body: item.blob,
         });
@@ -926,8 +962,12 @@ async function saveResultNative(item) {
             throw new Error(out.error || `HTTP ${res.status}`);
         item.saved = true;
         item.savePath = out.path;
-        setStatus(`Saved to ${out.path}`);
-        update();
+        item.savedAt = timeStr;
+        if (!out.notified && typeof window._AndroidShare?.notifySaved === 'function') {
+            window._AndroidShare.notifySaved(out.path, timeStr);
+        }
+        setStatus(`Saved at ${timeStr} to ${out.path}`);
+        showSaveToast(item.name, out.path, timeStr);
     }
     catch (e) {
         alert(`Save failed: ${e.message}`);
@@ -965,6 +1005,8 @@ async function shareResult(item) {
         // 1. Native Android Share (via Rust /api/share JNI + JS bridge fallback)
         if ((NATIVE && IS_ANDROID) || typeof window._AndroidShare?.shareFile === 'function') {
             setStatus(`Sharing ${item.name}…`);
+            const wasAlreadySaved = Boolean(item.savePath);
+            const timeStr = item.savedAt || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const existingParam = item.savePath ? `&path=${encodeURIComponent(item.savePath)}` : '';
             const res = await fetch(`/api/share?name=${encodeURIComponent(item.name)}&mime=${encodeURIComponent(mime)}${existingParam}`, {
                 method: 'POST',
@@ -976,6 +1018,10 @@ async function shareResult(item) {
             if (out.path) {
                 item.saved = true;
                 item.savePath = out.path;
+                item.savedAt = timeStr;
+                if (!wasAlreadySaved) {
+                    showSaveToast(item.name, out.path, timeStr);
+                }
             }
             if (!out.shared && out.path && typeof window._AndroidShare?.shareFile === 'function') {
                 window._AndroidShare.shareFile(out.path, mime, item.name);
@@ -1460,11 +1506,26 @@ function renderApp() {
                         res.ext === 'mp4' ? (jsx("video", { src: res.url, controls: true, loop: true, muted: true, autoplay: true, playsinline: true })) : res.ext === 'srt' ? (jsx("pre", null, res.text || '(no cues in selection)')) : (jsx("img", { src: res.url, alt: res.name })),
                         jsx("div", { class: "meta" },
                             jsx("div", { class: "result-actions" },
-                                NATIVE ? (jsx("button", { type: "button", class: "primary", disabled: res.saved, onClick: () => saveResultNative(res) }, res.saved ? '✓ Saved' : `💾 Save ${res.name}`)) : (jsx("a", { href: res.url, download: res.name },
+                                NATIVE ? (jsx("button", { type: "button", class: "primary", disabled: res.saved, onClick: () => saveResultNative(res) }, res.saved ? '✓ Saved' : `💾 Save ${res.name}`)) : (jsx("a", { href: res.url, download: res.name, onClick: () => {
+                                        const timeStr = new Date().toLocaleTimeString([], {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            second: '2-digit',
+                                        });
+                                        res.saved = true;
+                                        res.savePath = `Downloads/${res.name}`;
+                                        res.savedAt = timeStr;
+                                        showSaveToast(res.name, res.savePath, timeStr);
+                                    } },
                                     "\u2B07 ",
                                     res.name)),
                                 canShareResult(res) ? (jsx("button", { type: "button", class: "share-btn", title: `Share ${res.name}`, onClick: () => shareResult(res) }, "\uD83D\uDCE4 Share")) : null),
-                            jsx("span", { class: "dim" }, fmtBytes(res.size)))))))),
+                            jsx("span", { class: "dim" }, fmtBytes(res.size))),
+                        res.savePath ? (jsx("div", { class: "saved-info" },
+                            "\u2713 Saved ",
+                            res.savedAt ? `at ${res.savedAt} ` : '',
+                            "to ",
+                            jsx("code", null, res.savePath))) : null))))),
                 jsx("details", { class: "panel" },
                     jsx("summary", null, "ffmpeg log"),
                     jsx("pre", { id: "log" }))),
@@ -1580,7 +1641,21 @@ function renderApp() {
                             jsx("button", { class: "primary act-switch", type: "button", onClick: () => restoreAttempt(item.id) }, "\u21BB Switch to this attempt"),
                             jsx("button", { class: "btn act-export", type: "button", onClick: () => exportHistorySRT(item.id) }, "\u2B07 .srt"),
                             jsx("button", { class: "btn del act-del", type: "button", onClick: () => deleteAttempt(item.id) }, "\u2715"))));
-                })))))) : null));
+                })))))) : null,
+        state.toast ? (jsx("div", { class: "toast-banner", role: "status", "aria-live": "polite" },
+            jsx("div", { class: "toast-head" },
+                jsx("strong", null,
+                    "\u2713 Saved ",
+                    state.toast.name,
+                    " at ",
+                    state.toast.time),
+                jsx("button", { type: "button", class: "toast-close", title: "Dismiss notification", onClick: () => {
+                        state.toast = null;
+                        update();
+                    } }, "\u2715")),
+            jsx("div", { class: "toast-path" },
+                "Saved to: ",
+                jsx("code", null, state.toast.path)))) : null));
 }
 // Initial mount
 if (document.readyState === 'loading') {

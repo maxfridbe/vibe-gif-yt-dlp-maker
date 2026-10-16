@@ -114,6 +114,44 @@ pub fn share_file_android(path: &str, mime: &str, title: &str) -> bool {
 }
 
 #[cfg(target_os = "android")]
+pub fn notify_saved_android(path: &str, time_str: &str) -> bool {
+    let Some(vm) = ANDROID_VM.get() else {
+        return false;
+    };
+    let Ok(mut env) = vm.attach_current_thread() else {
+        return false;
+    };
+    let act_opt = ANDROID_ACTIVITY.lock().ok().and_then(|g| g.clone());
+    let Some(act) = act_opt else {
+        return false;
+    };
+    let Ok(j_path) = env.new_string(path) else {
+        return false;
+    };
+    let Ok(j_time) = env.new_string(time_str) else {
+        return false;
+    };
+    let j_path_obj: jni::objects::JObject = j_path.into();
+    let j_time_obj: jni::objects::JObject = j_time.into();
+    match env.call_method(
+        &act,
+        "notifySavedInternal",
+        "(Ljava/lang/String;Ljava/lang/String;)Z",
+        &[
+            jni::objects::JValue::Object(&j_path_obj),
+            jni::objects::JValue::Object(&j_time_obj),
+        ],
+    ) {
+        Ok(val) => val.z().unwrap_or(false),
+        Err(e) => {
+            log::warn!("notifySavedInternal JNI call failed: {}", e);
+            let _ = env.exception_clear();
+            false
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Java_com_maxfridbe_youtubegifmaker_MainActivity_nativeSetSharedUrl(
     mut env: jni::JNIEnv,

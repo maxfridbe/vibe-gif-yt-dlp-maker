@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "youtube-gif-maker",
-  "version": "26.1015.2",
+  "version": "26.1016.1",
   "identifier": "com.maxfridbe.youtubegifmaker",
   "build": {
     "frontendDist": "../src"
@@ -25,7 +25,7 @@
     ],
     "windows": {
       "wix": {
-        "version": "26.10.15"
+        "version": "26.10.16"
       }
     },
     "android": {

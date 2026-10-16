@@ -226,6 +226,7 @@ async fn static_handler(State(assets): State<Assets>, req: Request<Body>) -> imp
 #[derive(serde::Deserialize)]
 struct SaveQuery {
     name: String,
+    time: Option<String>,
 }
 
 /// Candidate folders for saved clips, most user-visible first.
@@ -234,7 +235,7 @@ fn save_dirs() -> Vec<PathBuf> {
     {
         vec![
             // Shows up in the Files app / Downloads; Android 11+ allows apps to
-            // create their own files here without a storage permission.
+            // create their own files here without any storage permission.
             PathBuf::from("/storage/emulated/0/Download/YouTubeGifMaker"),
             // Always-writable app-specific external storage as a fallback.
             PathBuf::from("/storage/emulated/0/Android/data/com.maxfridbe.youtubegifmaker/files"),
@@ -307,7 +308,16 @@ async fn write_clip_to_disk(raw_name: &str, existing_path: Option<&str>, body: &
 async fn save_handler(Query(q): Query<SaveQuery>, body: Bytes) -> impl IntoResponse {
     match write_clip_to_disk(&q.name, None, &body).await {
         Ok(path) => {
-            let result = serde_json::json!({ "path": path.to_string_lossy() });
+            let path_str = path.to_string_lossy().to_string();
+            let _time_str = q.time.as_deref().unwrap_or("");
+            #[cfg(target_os = "android")]
+            let notified = crate::notify_saved_android(&path_str, _time_str);
+            #[cfg(not(target_os = "android"))]
+            let notified = false;
+            let result = serde_json::json!({
+                "path": path_str,
+                "notified": notified,
+            });
             Response::builder()
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(result.to_string()))
